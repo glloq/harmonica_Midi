@@ -13,12 +13,13 @@ chacun des deux reservoir devras avoir :
 - un passage d'air vers la distribution/electrovannes
 - un systeme de valve de securité pour pression ou vide trop important 
 - une electrovanne pour controller l'ouverture du reservoir 
-![Schéma reservoirs_Air](images/scheme.png)
+![Schéma reservoirs](img/reservoirs.png)
+
 Les reservoirs  pourrons etre fait avec des systeme de soufflets ou avec un tube (transparent) et des systemes de joints torique ou plat adapté.
 
 
 il est possible d'utiliser des electrovanne du marché mais cela va enormement augmenter le coup total, je vais donc essayer de modeliser et imprimer des systeme de valves
-
+![Schéma valve](img/valve.png)
 
 
 
