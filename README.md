@@ -13,13 +13,8 @@ chacun des deux reservoir devras avoir :
 - un systeme de valve de securité pour pression ou vide trop important
 
 
+
 ## Matériel Nécessaire
-- Arduino (ex: Uno, Mega)
-- Cartes MCP9685
-- Transistors (ex: NPN)
-- Électroaimants
-- Câbles et connecteurs
-- Source d'alimentation
 
 ## Schéma de Principe
 ![Schéma Électrique](images/scheme.png)
