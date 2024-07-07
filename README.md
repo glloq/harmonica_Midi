@@ -12,13 +12,15 @@ chacun des deux reservoir devras avoir :
 - un capteur fin de course
 - un passage d'air vers la distribution/electrovannes
 - un systeme de valve de securité pour pression ou vide trop important 
-- une electrovanne pour controller l'ouverture du reservoir 
+- une electrovanne pour controller l'ouverture du reservoir
+- 
 ![Schéma reservoirs](img/reservoirs.png)
+<img src="img/reservoirs.png" width=50% height=50%>
 
 Les reservoirs  pourrons etre fait avec des systeme de soufflets ou avec un tube (transparent) et des systemes de joints torique ou plat adapté.
 
 
-il est possible d'utiliser des electrovanne du marché mais cela va enormement augmenter le coup total, je vais donc essayer de modeliser et imprimer des systeme de valves
+il est possible d'utiliser des electrovanne du marché mais cela va enormement augmenter le coup total, je vais donc essayer de modeliser et imprimer des systeme de valves (impression resine probablement necessaire ?) 
 ![Schéma valve](img/valve.png)
 
 
