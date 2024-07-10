@@ -39,7 +39,8 @@ pour eviter les fuites nous pouvons utiliser des joints toriques pour sceller le
 On peut utiliser un joint plat decoupé pour isoler les deux reservoirs (il est egalement possible d'utiliser le joint comme "valve" de securité ; en jouant sur de design du piston, on peut utiliser le joint comme soupape de securité => pas cool pour le jeu avec les varaiation de presions)
 
 L'ideal serait d'utiliser des assemblage de planches collé pour permettre le passage d'air et de l'electronique (ca a plus de gueule aussi)
-<img src="img/design1.png" width=40% height=40%>
+
+<img src="img/design1.png" width=70% height=70%>
 
 
 #### Distribution
