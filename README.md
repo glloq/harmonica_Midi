@@ -28,6 +28,20 @@ chacun des deux reservoir devras avoir :
 <img src="img/reservoirs.png" width=30% height=30%>
 Les reservoirs pourons etre fait avec des systeme de soufflets ou avec un tube (transparent?) et des systemes de joints torique ou plat adapté.
 
+il faut prendre en compte plusieurs parametres pour definir le debit maximum que l'ont peut atteindre :
+-  Le pas de la tige fileté qui entraine le piston
+-  la vitesse maximum du moteur (avec un couple suffisant)
+-  les pertes/fuites
+
+Le plus simple serait d'utiliser un tube de diametre 20cm et d'une hauteur de 35cm environ afin d'avoir autour de 10 litres d'airs dans les reservoirs.
+il faut choisir le moteur et la tige fileté pour avoir un debit maximum de 10 a 15 litres par minutes =>  une tige fileté normale devrais sufire ? 
+pour eviter les fuites nous pouvons utiliser des joints toriques pour sceller les assemblages.
+On peut utiliser un joint plat decoupé pour isoler les deux reservoirs (il est egalement possible d'utiliser le joint comme "valve" de securité ; en jouant sur de design du piston, on peut utiliser le joint comme soupape de securité => pas cool pour le jeu avec les varaiation de presions)
+
+L'ideal serait d'utiliser des assemblage de planches collé pour permettre le passage d'air et de l'electronique (ca a plus de gueule aussi)
+<img src="img/design1.png" width=40% height=40%>
+
+
 #### Distribution
 
 il est possible d'utiliser des electrovanne du marché mais cela va enormement augmenter le coup total
