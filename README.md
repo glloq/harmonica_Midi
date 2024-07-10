@@ -42,6 +42,9 @@ L'ideal serait d'utiliser des assemblage de planches collé pour permettre le pa
 
 <img src="img/design1.png" width=70% height=70%>
 
+l'idée est d'utiliser le moteur pas a pas pour alterner l'aspiration et le soufflage sur les deux reservoirs en fonction de la postion du piston.
+idealement il ne faut pas utiliser les fin de courses, l'idée est d'initialiser la position du piston sur l'un des deux coté au demarage puis de centrer le piston sans jouer de note (=> donc les deux valves open R1 et R2 ouverte) 
+le code viendra alterner le sens de deplacement du piston en fonction de la distance restante des reservoir R1 et R2, l'objectif est de rester au centre le plus possible (l'harmonica jouant des melodies alternant le soufflage et l'aspiration, on evite donc trop d'utilisation des valves de distribution par la meme occasion )
 
 #### Distribution
 
