@@ -15,7 +15,7 @@ Une fois la que l'ont peut correctement controller chacune des notes avec une ve
 ## Choix technique
 en utilisant les pression d'air d'air d'un etre humain, on pêut estimer l'aspiration de -0.1 a -0.5KPa et le soufflage de 0.1 a 0.5KPa
 
-#### Systeme de pompes
+## Systeme de pompes
 Nous utiliserons un moteur pas a pas pour faire varier le volume de deux reservoirs et utiliser l'aspiration ou le soufflage pour les notes midi demandées.
 chacun des deux reservoir devras avoir :
 - un volume d'air deplacé d'environ 2 a 5 litres
@@ -46,7 +46,7 @@ l'idée est d'utiliser le moteur pas a pas pour alterner l'aspiration et le souf
 idealement il ne faut pas utiliser les fin de courses, l'idée est d'initialiser la position du piston sur l'un des deux coté au demarage puis de centrer le piston sans jouer de note (=> donc les deux valves open R1 et R2 ouverte) 
 le code viendra alterner le sens de deplacement du piston en fonction de la distance restante des reservoir R1 et R2, l'objectif est de rester au centre le plus possible (l'harmonica jouant des melodies alternant le soufflage et l'aspiration, on evite donc trop d'utilisation des valves de distribution par la meme occasion )
 
-#### Distribution
+## Distribution
 
 il est possible d'utiliser des electrovanne du marché mais cela va enormement augmenter le coup total
 l'idée est d'imprimer un systeme de valve avec 2 entrées et une sortie pour chacun des trous de l'harmonica afin de selectionner l'aspiration ou le soufflage en fonction de la note midi demandé.
