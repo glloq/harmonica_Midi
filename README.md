@@ -57,8 +57,17 @@ il faut respecter des contraintes de taille pour chaque passage d'air.
 pour chaque trous vers l'harmonica, il faudrait utiliser une surface de 7 a 15 mm² ( soit un diametre de 3 a 4.5mm) 
 pour chaque arrivé d'air, il faut adapter le diametre en fonction du nombre de note jouable en meme temps ( a adapter en fonction de la vitesse de deplacement de la partie centrale du reservoir) un diametre de 10 a 15mm devrais etre amplement sufisant pour un harmonica classique de 10 trous
 
+## Materiel electrique
+
+- un nema 17 
+- un driver pour moteur pas a pas
+- deux fin de course mecanique
+- deux capteurs de pression adapté
+- un pca9685
+- des servomoteurs (1 pour chaque trou d'harmonica et 2 pour les valves d'ouverture des reservoirs) 
 
 ## Schéma electrique
+
 ![Schéma Électrique](images/scheme.png)
 
 ## liens utiles
