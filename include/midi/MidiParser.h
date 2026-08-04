@@ -32,7 +32,8 @@ public:
     if (hi == 0x90)      { e.type = MidiEvent::NoteOn;        sink(e); }
     else if (hi == 0x80) { e.type = MidiEvent::NoteOff;       sink(e); }
     else if (hi == 0xB0) { e.type = MidiEvent::ControlChange; sink(e); }
-    // 0xA0/0xC0/0xD0/0xE0 : consommés mais non remontés
+    else if (hi == 0xE0) { e.type = MidiEvent::PitchBend;     sink(e); }  // data1=LSB, data2=MSB
+    // 0xA0/0xC0/0xD0 : consommés mais non remontés
   }
 
 private:

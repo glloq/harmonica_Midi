@@ -17,6 +17,7 @@
 #include "IAirSource.h"
 #include "../Config.h"
 #include "../hal/Hal.h"
+#include "../util/PIController.h"
 
 namespace harm {
 
@@ -32,6 +33,8 @@ public:
     piston_.enable(true);
     pR1_.begin(); pR2_.begin();
     endstops_.begin();
+    pi_.configure(cfg_.pressureKp, cfg_.pressureKi, 0.0f, 1.0f, 1.0f);
+    lastMs_ = 0;
     blowRail_ = Rail::A;           // au départ R1 = souffle (arbitraire, corrigé au 1er reversal)
     setReservoirValve(Rail::A, false);
     setReservoirValve(Rail::B, false);
@@ -71,7 +74,7 @@ public:
   }
   bool supportsSimultaneousDirections() const override { return true; }
 
-  void update(uint32_t /*nowMs*/) override {
+  void update(uint32_t nowMs) override {
     switch (state_) {
       case State::Boot: break;
       case State::Homing:
@@ -83,7 +86,7 @@ public:
         if (!piston_.isRunning()) state_ = State::Running;
         break;
       case State::Running:
-        runningControl();
+        runningControl(nowMs);
         piston_.run();
         break;
     }
@@ -128,7 +131,12 @@ private:
     ++assignmentGen_;
   }
 
-  void runningControl() {
+  void runningControl(uint32_t nowMs) {
+    float dt = (lastMs_ == 0) ? 0.02f : (nowMs - lastMs_) / 1000.0f;
+    lastMs_ = nowMs;
+    if (dt <= 0.0f) dt = 0.001f;
+    if (dt > 0.2f) dt = 0.2f;
+
     const bool blow = blowDemand_ > 0.0f;
     const bool draw = drawDemand_ > 0.0f;
     const bool idle = !blow && !draw;
@@ -146,14 +154,17 @@ private:
     const bool atFeedEnd = (feedDir() < 0) ? (pos <= margin) : (pos >= cfg_.travelMm - margin);
     const bool wayPastCenter = (feedDir() < 0) ? (pos <= cfg_.travelMm * 0.4f)
                                                : (pos >= cfg_.travelMm * 0.6f);
-    if (atFeedEnd || (idle && wayPastCenter)) { reverse(); return; }
+    if (atFeedEnd || (idle && wayPastCenter)) { pi_.reset(); reverse(); return; }
 
-    // Régulation de pression (bang-bang simple sur le rail souffle) : on avance
-    // vers l'extrémité "feed" tant que la pression est sous la cible.
-    if (idle) { piston_.moveToMm(pos); return; }
-    const float p = railKpa(blowRail_);
-    if (p < cfg_.pressureTargetKpa - cfg_.pressureToleranceKpa) piston_.moveToMm(feedEndMm());
-    else                                                        piston_.moveToMm(pos);
+    if (idle) { pi_.reset(); piston_.moveToMm(pos); return; }
+
+    // Régulation PI : on avance vers l'extrémité "feed" d'une fraction de course
+    // (0..1) proportionnelle à l'erreur de pression du rail souffle.
+    const float out = pi_.update(cfg_.pressureTargetKpa - railKpa(blowRail_), dt);
+    float target = pos + feedDir() * out * cfg_.travelMm;
+    if (target < 0.0f) target = 0.0f;
+    else if (target > cfg_.travelMm) target = cfg_.travelMm;
+    piston_.moveToMm(target);
   }
 
   IStepper&        piston_;
@@ -169,6 +180,8 @@ private:
   float    blowDemand_ = 0.0f, drawDemand_ = 0.0f;
   uint16_t assignmentGen_ = 0;
   int8_t   valveStateA_ = -1, valveStateB_ = -1;   // -1 inconnu, 0 fermé, 1 ouvert
+  PIController pi_;
+  uint32_t lastMs_ = 0;
 };
 
 }  // namespace harm

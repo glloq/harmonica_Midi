@@ -51,20 +51,23 @@ async function loadPresets() {
     list.forEach((name) => {
       const li = document.createElement('li');
       li.textContent = name.replace(/^\/?presets\//, '').replace(/\.json$/, '');
-      li.onclick = () => viewPreset(name);
+      li.onclick = () => applyPreset(name);
       ul.appendChild(li);
     });
     if (!list.length) ul.innerHTML = '<li>(aucun)</li>';
   } catch (e) { /* pas de presets */ }
 }
-async function viewPreset(name) {
+// Applique un preset d'harmonica à chaud (échange du mapping, sans reboot).
+async function applyPreset(name) {
   const path = name.startsWith('/') ? name : '/presets/' + name;
+  if (!confirm('Charger « ' + name + ' » ? Les notes en cours seront coupées.')) return;
   try {
-    const r = await fetch(path);
-    const txt = await r.text();
-    msg('preset « ' + name + ' » chargé dans le presse-papier (à fusionner)', true);
-    navigator.clipboard && navigator.clipboard.writeText(txt);
-  } catch (e) { msg('preset introuvable', false); }
+    const preset = await (await fetch(path)).text();
+    const r = await fetch('/api/harmonica', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: preset });
+    const j = await r.json();
+    if (j.ok) { msg('harmonica « ' + name + ' » appliquée', true); loadConfig(); }
+    else msg('preset refusé (JSON harmonica invalide)', false);
+  } catch (e) { msg('échec réseau', false); }
 }
 
 // ---- Télémétrie (WebSocket + repli polling) --------------------------------

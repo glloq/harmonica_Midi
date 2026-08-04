@@ -20,6 +20,7 @@ struct NoteMapping {
   Direction direction = Direction::Closed;
   bool      slide = false;
   float     intensityScale = 1.0f;
+  float     bendSemitones = 0.0f;   // note obtenue par bend (modélisation)
 };
 
 class HarmonicaMap {
@@ -36,7 +37,7 @@ public:
       NoteMapping& m = table_[e.note];
       if (m.valid) continue;                 // première entrée prioritaire
       m.valid = true; m.hole = e.hole; m.direction = e.direction;
-      m.slide = e.slide; m.intensityScale = e.intensityScale;
+      m.slide = e.slide; m.intensityScale = e.intensityScale; m.bendSemitones = e.bendSemitones;
     }
   }
 

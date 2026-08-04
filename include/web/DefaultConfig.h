@@ -31,6 +31,7 @@ inline const char* kDefaultConfigJson() {
       "stepsPerMm": 80, "travelMm": 300, "centerMm": 150, "homeOnR1": true,
       "reversalMarginMm": 20, "maxSpeedMmS": 40, "accelMmS2": 200,
       "pressureTargetKpa": 0.30, "pressureToleranceKpa": 0.05, "flowLpm": 12,
+      "pressureKp": 4.0, "pressureKi": 0.5,
       "pressureType": "bmp280", "r1Addr": "0x76", "r2Addr": "0x77", "r1AdcPin": 34, "r2AdcPin": 35,
       "valveR1Channel": 12, "valveR2Channel": 13,
       "valveR1Open": 90, "valveR1Closed": 0, "valveR2Open": 90, "valveR2Closed": 0
@@ -38,6 +39,7 @@ inline const char* kDefaultConfigJson() {
     "singleBellows": {
       "stepsPerMm": 80, "travelMm": 200, "centerMm": 100, "maxSpeedMmS": 40, "accelMmS2": 200,
       "pressureTargetKpa": 0.30, "pressureToleranceKpa": 0.05, "flowLpm": 12,
+      "pressureKp": 4.0, "pressureKi": 0.5,
       "pressureType": "bmp280", "addr": "0x76", "adcPin": 34
     }
   },
@@ -78,7 +80,7 @@ inline const char* kDefaultConfigJson() {
       { "note": 96, "hole": 9, "dir": "blow" }, { "note": 93, "hole": 9, "dir": "draw" }
     ]
   },
-  "engine": { "maxPolyphony": 10, "arbitration": "reject", "velocityToIntensity": true },
+  "engine": { "maxPolyphony": 10, "arbitration": "reject", "velocityToIntensity": true, "vibratoRateHz": 5.0, "vibratoDepth": 0.25 },
   "system": { "mockMode": false, "telemetryHz": 10 }
 })JSON";
 }

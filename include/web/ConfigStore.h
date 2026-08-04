@@ -17,10 +17,12 @@ class ConfigStore {
 public:
   bool          begin();                                  // monte FS, charge fichier ou défaut
   bool          save(const char* json);                   // valide -> écrit -> recharge cfg_
+  bool          saveHarmonica(const char* harmonicaJson); // remplace la section harmonica + persiste
   const Config& config() const { return cfg_; }
   const char*   raw() const { return raw_.c_str(); }
 
-  static bool   deserialize(const char* json, Config& out);   // pur (ArduinoJson)
+  static bool   deserialize(const char* json, Config& out);              // pur (ArduinoJson)
+  static bool   deserializeHarmonica(const char* json, HarmonicaCfg& out); // preset harmonica autonome
 
 private:
   Config      cfg_;

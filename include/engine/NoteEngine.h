@@ -36,18 +36,32 @@ public:
         break;
       case MidiEvent::NoteOff:       noteOff(e.data1); break;
       case MidiEvent::ControlChange: controlChange(e.data1, e.data2); break;
+      case MidiEvent::PitchBend: {
+        int v = ((int)e.data2 << 7) | e.data1;   // 0..16383, centre 8192
+        pitchBend_ = (v - 8192) / 8192.0f;       // -1..~+1
+        break;
+      }
     }
   }
 
-  // Réagit au changement d'assignation Rail<->Direction (inversion du piston).
-  void update(uint32_t /*nowMs*/) {
+  // Réagit au swap Rail<->Direction (inversion piston) et applique le vibrato.
+  void update(uint32_t nowMs) {
     uint16_t gen = air_->status().assignmentGen;
     if (gen != lastAssignmentGen_) { lastAssignmentGen_ = gen; reapplyValves(); }
+    float vs = (activeVoiceCount() > 0) ? vibratoScale(nowMs) : 1.0f;
+    if (vs != vibScale_) { vibScale_ = vs; recomputeAir(); }   // vibrato live (CC1)
   }
 
   bool     mixedCapable() const { return mixedCapable_; }
   uint8_t  activeVoiceCount() const { uint8_t n = 0; for (auto& v : voices_) if (v.active) ++n; return n; }
   Direction activeDirection() const { for (auto& v : voices_) if (v.active) return v.dir; return Direction::Closed; }
+  float    pitchBend() const { return pitchBend_; }                       // -1..+1
+  float    pitchBendSemitones() const { return pitchBend_ * kPitchBendRangeSemi; }
+  float    modulationDepth() const { return modulation_; }
+
+  // Coupe toutes les notes (ferme les valves, relâche l'air, slide au repos).
+  // À appeler avant un échange d'harmonica à chaud (les voix référencent des trous).
+  void panic() { allNotesOff(); }
 
 private:
   struct Voice { bool active=false; uint8_t note=0; uint8_t hole=0; Direction dir=Direction::Closed; bool slide=false; float base=0.0f; };
@@ -55,6 +69,13 @@ private:
   float computeBase(uint8_t vel, float scale) const {
     float b = cfg_.velocityToIntensity ? (vel / 127.0f) : 1.0f;
     return clamp01(b * scale);
+  }
+
+  // Facteur de vibrato de pression piloté par CC1 (modulation). 1.0 si inactif.
+  float vibratoScale(uint32_t ms) const {
+    if (modulation_ <= 0.0f) return 1.0f;
+    const float depth = modulation_ * cfg_.vibratoDepth;
+    return 1.0f + depth * std::sin(6.2831853f * cfg_.vibratoRateHz * (ms / 1000.0f));
   }
 
   void noteOn(uint8_t note, uint8_t vel) {
@@ -107,7 +128,7 @@ private:
     float blow = 0.0f, draw = 0.0f;
     for (auto& v : voices_) {
       if (!v.active) continue;
-      float eff = clamp01(v.base * breath_ * expression_);
+      float eff = clamp01(v.base * breath_ * expression_ * vibScale_);
       if (v.dir == Direction::Blow) { if (eff > blow) blow = eff; }
       else if (v.dir == Direction::Draw) { if (eff > draw) draw = eff; }
     }
@@ -135,6 +156,8 @@ private:
   uint16_t        lastAssignmentGen_ = 0;
   bool            mixedCapable_ = false;
   float           breath_ = 1.0f, expression_ = 1.0f, modulation_ = 0.0f;
+  float           vibScale_ = 1.0f, pitchBend_ = 0.0f;
+  static constexpr float kPitchBendRangeSemi = 2.0f;   // ±2 demi-tons (modélisation)
 };
 
 }  // namespace harm
