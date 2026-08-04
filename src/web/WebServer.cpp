@@ -34,6 +34,8 @@ static String buildStatus() {
   d["assignmentGen"] = a.assignmentGen;
   d["voices"] = g_sys->engine.activeVoiceCount();
   d["mixedCapable"] = g_sys->engine.mixedCapable();
+  d["pitchBend"] = g_sys->engine.pitchBend();
+  d["modulation"] = g_sys->engine.modulationDepth();
   d["transports"] = g_sys->router.transportCount();
   d["mock"] = g_sys->mock;
   d["harmonica"] = g_sys->map.name();

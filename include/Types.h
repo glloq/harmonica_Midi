@@ -23,10 +23,10 @@ enum class Rail : uint8_t { None = 0, A = 1, B = 2 };
 
 // Évènement MIDI normalisé, produit par n'importe quel transport.
 struct MidiEvent {
-  enum Type : uint8_t { NoteOn, NoteOff, ControlChange } type;
+  enum Type : uint8_t { NoteOn, NoteOff, ControlChange, PitchBend } type;
   uint8_t channel;  // 0..15 (nibble de canal MIDI)
-  uint8_t data1;    // numéro de note ou de CC
-  uint8_t data2;    // vélocité ou valeur de CC
+  uint8_t data1;    // note / CC / LSB de pitch-bend
+  uint8_t data2;    // vélocité / valeur CC / MSB de pitch-bend
 };
 
 // Instantané de l'état du système d'air, exposé à la télémétrie / au moteur.

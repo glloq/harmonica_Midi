@@ -54,6 +54,7 @@ struct DualReservoirCfg {
   float reversalMarginMm = 20.0f;
   float maxSpeedMmS = 40.0f, accelMmS2 = 200.0f;
   float pressureTargetKpa = 0.30f, pressureToleranceKpa = 0.05f, flowLpm = 12.0f;
+  float pressureKp = 4.0f, pressureKi = 0.5f;   // régulation PI de pression
   PressureType pressureType = PressureType::Bmp280;
   uint8_t r1Addr = 0x76, r2Addr = 0x77;   // BMP280
   int   r1AdcPin = 34, r2AdcPin = 35;     // MPX2010 (analogique)
@@ -65,6 +66,7 @@ struct BellowsCfg {
   float stepsPerMm = 80.0f, travelMm = 200.0f, centerMm = 100.0f;
   float maxSpeedMmS = 40.0f, accelMmS2 = 200.0f;
   float pressureTargetKpa = 0.30f, pressureToleranceKpa = 0.05f, flowLpm = 12.0f;
+  float pressureKp = 4.0f, pressureKi = 0.5f;   // régulation PI de pression
   PressureType pressureType = PressureType::Bmp280;
   uint8_t addr = 0x76;
   int   adcPin = 34;
@@ -104,6 +106,7 @@ struct NoteEntry {
   Direction direction = Direction::Blow;
   bool      slide = false;
   float     intensityScale = 1.0f;
+  float     bendSemitones = 0.0f;   // note obtenue par bend (négatif = plus grave)
 };
 struct HarmonicaCfg {
   char      name[32] = "Diatonic";
@@ -119,6 +122,8 @@ struct EngineCfg {
   uint8_t     maxPolyphony = 10;
   Arbitration arbitration = Arbitration::Reject;
   bool        velocityToIntensity = true;
+  float       vibratoRateHz = 5.0f;    // vibrato de pression (CC1 modulation)
+  float       vibratoDepth = 0.25f;    // profondeur max à CC1 = 127
 };
 
 // ---- Système ----------------------------------------------------------------

@@ -11,6 +11,7 @@
 #include "IAirSource.h"
 #include "../Config.h"
 #include "../hal/Hal.h"
+#include "../util/PIController.h"
 
 namespace harm {
 
@@ -24,6 +25,8 @@ public:
     motor_.setKinematics(cfg_.maxSpeedMmS, cfg_.accelMmS2, cfg_.stepsPerMm);
     motor_.enable(true);
     sensor_.begin();
+    pi_.configure(cfg_.pressureKp, cfg_.pressureKi, 0.0f, 1.0f, 1.0f);
+    lastMs_ = 0;
     motor_.moveToMm(cfg_.centerMm);
     homed_ = true;                 // pas d'endstop : origine logicielle
     return true;
@@ -51,14 +54,19 @@ public:
   }
   bool supportsSimultaneousDirections() const override { return false; }
 
-  void update(uint32_t /*nowMs*/) override {
+  void update(uint32_t nowMs) override {
+    float dt = (lastMs_ == 0) ? 0.02f : (nowMs - lastMs_) / 1000.0f;
+    lastMs_ = nowMs;
+    if (dt <= 0.0f) dt = 0.001f;
+    if (dt > 0.2f) dt = 0.2f;
+
     if (active_ != Direction::Closed) {
-      const float p = std::fabs(sensor_.readKpa());
-      if (p < cfg_.pressureTargetKpa - cfg_.pressureToleranceKpa) {
-        motor_.moveToMm(active_ == Direction::Blow ? 0.0f : cfg_.travelMm);  // comprime / détend
-      } else {
-        motor_.moveToMm(motor_.positionMm());                                // maintient
-      }
+      const float out = pi_.update(cfg_.pressureTargetKpa - std::fabs(sensor_.readKpa()), dt);
+      const float end = (active_ == Direction::Blow) ? 0.0f : cfg_.travelMm;  // comprime / détend
+      const float pos = motor_.positionMm();
+      motor_.moveToMm(pos + (end - pos) * out);   // avance proportionnellement à l'erreur
+    } else {
+      pi_.reset();
     }
     motor_.run();
   }
@@ -81,6 +89,8 @@ private:
   bool      homed_ = false;
   Direction active_ = Direction::Closed;
   float     intensity_ = 0.0f;
+  PIController pi_;
+  uint32_t  lastMs_ = 0;
 };
 
 }  // namespace harm

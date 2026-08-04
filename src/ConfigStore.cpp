@@ -60,6 +60,7 @@ static void parseHarmonicaInto(JsonVariantConst h, HarmonicaCfg& hc) {
     N.direction = parseDir(e["dir"] | "blow");
     N.slide = e["slide"] | false;
     N.intensityScale = e["intensityScale"] | 1.0f;
+    N.bendSemitones = e["bend"] | 0.0f;
     ++n;
   }
   hc.noteCount = n;
@@ -116,6 +117,8 @@ bool ConfigStore::deserialize(const char* json, Config& c) {
     x.pressureTargetKpa = d["pressureTargetKpa"] | x.pressureTargetKpa;
     x.pressureToleranceKpa = d["pressureToleranceKpa"] | x.pressureToleranceKpa;
     x.flowLpm = d["flowLpm"] | x.flowLpm;
+    x.pressureKp = d["pressureKp"] | x.pressureKp;
+    x.pressureKi = d["pressureKi"] | x.pressureKi;
     x.pressureType = parsePressure(d["pressureType"] | "bmp280");
     x.r1Addr = toU8Hex(d["r1Addr"], x.r1Addr);
     x.r2Addr = toU8Hex(d["r2Addr"], x.r2Addr);
@@ -139,6 +142,8 @@ bool ConfigStore::deserialize(const char* json, Config& c) {
     x.pressureTargetKpa = d["pressureTargetKpa"] | x.pressureTargetKpa;
     x.pressureToleranceKpa = d["pressureToleranceKpa"] | x.pressureToleranceKpa;
     x.flowLpm = d["flowLpm"] | x.flowLpm;
+    x.pressureKp = d["pressureKp"] | x.pressureKp;
+    x.pressureKi = d["pressureKi"] | x.pressureKi;
     x.pressureType = parsePressure(d["pressureType"] | "bmp280");
     x.addr = toU8Hex(d["addr"], x.addr);
     x.adcPin = d["adcPin"] | x.adcPin;
@@ -181,6 +186,8 @@ bool ConfigStore::deserialize(const char* json, Config& c) {
   c.engine.maxPolyphony = r["engine"]["maxPolyphony"] | c.engine.maxPolyphony;
   c.engine.arbitration = parseArb(r["engine"]["arbitration"] | "reject");
   c.engine.velocityToIntensity = r["engine"]["velocityToIntensity"] | c.engine.velocityToIntensity;
+  c.engine.vibratoRateHz = r["engine"]["vibratoRateHz"] | c.engine.vibratoRateHz;
+  c.engine.vibratoDepth = r["engine"]["vibratoDepth"] | c.engine.vibratoDepth;
   c.system.mockMode = r["system"]["mockMode"] | c.system.mockMode;
   c.system.telemetryHz = r["system"]["telemetryHz"] | c.system.telemetryHz;
   return true;

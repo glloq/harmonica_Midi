@@ -209,15 +209,23 @@ Arduino/Adafruit et la glue BLE/WiFi/web sont sous `#if HARM_ARDUINO`.
 ## 10. Compiler, tester, simuler
 
 ```bash
-# Firmware ESP32
+# Firmware ESP32 (nécessite l'accès au registre PlatformIO)
 pio run -e esp32dev
 pio run -e esp32dev -t uploadfs      # envoie data/ (config + web) sur LittleFS
 pio run -e esp32dev -t upload
 
-# Logique pure sur PC (aucun matériel)
-pio test -e native                   # tests unitaires
+# Tests unitaires (logique pure) SANS le registre PlatformIO : g++ + ArduinoJson
+# et Unity récupérés dans .cache/. C'est la commande de CI recommandée.
+./tools/run_native_tests.sh
+
+# Équivalent via PlatformIO si le registre est joignable :
+pio test -e native
 pio run  -e native && .pio/build/native/program   # démo mock (journalise les actionneurs)
 ```
+
+> **CI / sessions web** : un hook `SessionStart` (`.claude/hooks/session-start.sh`)
+> pré-télécharge les dépendances des tests et installe PlatformIO, pour que
+> `./tools/run_native_tests.sh` soit prêt dès l'ouverture d'une session.
 
 **Mode simulation** : flag `-DHARM_MOCK` (env native) ou `system.mockMode=true`
 (sur ESP32). Les mocks (`MockStepper`, `MockPressure`, `MockServoBus`,
@@ -240,14 +248,14 @@ familles air (`DualReservoirPiston`, `SingleBellows`) et valve (`Valve2in1`,
 MPX2010/endstops), transports **BLE** (phase 3) et **WiFi RTP** (phase 4), serveur
 web + calibration (phase 5), bring-up bi-cœur.
 
-**À poursuivre** : régulation de pression PI plus fine, optimisation « rester
-centré », expression complète (CC1 vibrato, `CC5`/pitch-bend → extension de
-`NoteMapping` pour les bends), presets complets par famille.
+**Implémenté depuis** : régulation de pression **PI** (`PIController`,
+anti-windup) dans les deux sources d'air ; **vibrato de pression** piloté par
+CC1 (live) ; **pitch-bend** MIDI parsé (0xE0, 14 bits) + dimension `bend` dans
+le mapping (modélisation) ; échange d'harmonica **à chaud** (`POST /api/harmonica`).
 
-> Échange d'harmonica **à chaud** implémenté : cliquer un preset (ou `POST
-> /api/harmonica`) coupe les notes en cours, recharge le mapping et persiste,
-> sans redémarrage — vérifié par tests natifs (`deserializeHarmonica`,
-> `applyHarmonica`, `saveHarmonica`).
+**À poursuivre** : réglage fin des gains PI sur banc, optimisation « rester
+centré », **actionnement** réel des bends (le pitch-bend est capté mais pas
+encore traduit en modulation d'air), presets complets par famille.
 
 ## 12. Risques & recommandations matérielles
 
