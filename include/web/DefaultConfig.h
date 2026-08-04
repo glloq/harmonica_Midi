@@ -1,0 +1,86 @@
+// ============================================================================
+//  DefaultConfig.h — configuration par défaut embarquée (fallback).
+//
+//  Contenu identique à data/config.json (uploadé sur LittleFS). Sert de secours
+//  si le fichier est absent ou illisible, et de réponse GET /api/config par
+//  défaut. Build de référence : diatonique C + vérin double + valve 2-en-1.
+// ============================================================================
+#pragma once
+
+namespace harm {
+
+inline const char* kDefaultConfigJson() {
+  return R"JSON({
+  "version": 1,
+  "board": {
+    "i2c": { "sda": 21, "scl": 22, "freqHz": 400000 },
+    "stepper": { "step": 26, "dir": 27, "enable": 25, "invertEnable": true },
+    "endstops": { "r1": 32, "r2": 33, "activeLow": true },
+    "statusLed": 2
+  },
+  "midi": {
+    "activeWireless": "none",
+    "channel": 0,
+    "serial": { "enabled": true, "rxPin": 16, "txPin": 17, "baud": 31250 },
+    "ble": { "deviceName": "HarmonicaMIDI" },
+    "wifi": { "mode": "sta", "ssid": "", "password": "", "apPassword": "harmonica", "sessionName": "Harmonica", "rtpPort": 5004 }
+  },
+  "air": {
+    "impl": "dualReservoirPiston",
+    "dualReservoirPiston": {
+      "stepsPerMm": 80, "travelMm": 300, "centerMm": 150, "homeOnR1": true,
+      "reversalMarginMm": 20, "maxSpeedMmS": 40, "accelMmS2": 200,
+      "pressureTargetKpa": 0.30, "pressureToleranceKpa": 0.05, "flowLpm": 12,
+      "pressureType": "bmp280", "r1Addr": "0x76", "r2Addr": "0x77", "r1AdcPin": 34, "r2AdcPin": 35,
+      "valveR1Channel": 12, "valveR2Channel": 13,
+      "valveR1Open": 90, "valveR1Closed": 0, "valveR2Open": 90, "valveR2Closed": 0
+    },
+    "singleBellows": {
+      "stepsPerMm": 80, "travelMm": 200, "centerMm": 100, "maxSpeedMmS": 40, "accelMmS2": 200,
+      "pressureTargetKpa": 0.30, "pressureToleranceKpa": 0.05, "flowLpm": 12,
+      "pressureType": "bmp280", "addr": "0x76", "adcPin": 34
+    }
+  },
+  "valve": {
+    "impl": "valve2in1",
+    "pca9685": { "addr": "0x40", "freqHz": 50, "oscHz": 27000000 },
+    "servoUs": { "min": 500, "max": 2500 },
+    "valve2in1": { "holes": [
+      { "hole": 0, "channel": 0, "railAangle": 30, "railBangle": 150, "closedAngle": 90 },
+      { "hole": 1, "channel": 1, "railAangle": 30, "railBangle": 150, "closedAngle": 90 },
+      { "hole": 2, "channel": 2, "railAangle": 30, "railBangle": 150, "closedAngle": 90 },
+      { "hole": 3, "channel": 3, "railAangle": 30, "railBangle": 150, "closedAngle": 90 },
+      { "hole": 4, "channel": 4, "railAangle": 30, "railBangle": 150, "closedAngle": 90 },
+      { "hole": 5, "channel": 5, "railAangle": 30, "railBangle": 150, "closedAngle": 90 },
+      { "hole": 6, "channel": 6, "railAangle": 30, "railBangle": 150, "closedAngle": 90 },
+      { "hole": 7, "channel": 7, "railAangle": 30, "railBangle": 150, "closedAngle": 90 },
+      { "hole": 8, "channel": 8, "railAangle": 30, "railBangle": 150, "closedAngle": 90 },
+      { "hole": 9, "channel": 9, "railAangle": 30, "railBangle": 150, "closedAngle": 90 }
+    ] },
+    "valve1in1": { "holes": [
+      { "hole": 0, "channel": 0, "openAngle": 90, "closedAngle": 0 },
+      { "hole": 1, "channel": 1, "openAngle": 90, "closedAngle": 0 }
+    ] }
+  },
+  "slide": { "enabled": false, "channel": 14, "engagedAngle": 120, "restAngle": 60 },
+  "harmonica": {
+    "name": "Diatonic C Richter", "holeCount": 10, "hasSlide": false,
+    "notes": [
+      { "note": 60, "hole": 0, "dir": "blow" }, { "note": 62, "hole": 0, "dir": "draw" },
+      { "note": 64, "hole": 1, "dir": "blow" }, { "note": 67, "hole": 1, "dir": "draw" },
+      { "note": 67, "hole": 2, "dir": "blow" }, { "note": 71, "hole": 2, "dir": "draw" },
+      { "note": 72, "hole": 3, "dir": "blow" }, { "note": 74, "hole": 3, "dir": "draw" },
+      { "note": 76, "hole": 4, "dir": "blow" }, { "note": 77, "hole": 4, "dir": "draw" },
+      { "note": 79, "hole": 5, "dir": "blow" }, { "note": 81, "hole": 5, "dir": "draw" },
+      { "note": 84, "hole": 6, "dir": "blow" }, { "note": 83, "hole": 6, "dir": "draw" },
+      { "note": 88, "hole": 7, "dir": "blow" }, { "note": 86, "hole": 7, "dir": "draw" },
+      { "note": 91, "hole": 8, "dir": "blow" }, { "note": 89, "hole": 8, "dir": "draw" },
+      { "note": 96, "hole": 9, "dir": "blow" }, { "note": 93, "hole": 9, "dir": "draw" }
+    ]
+  },
+  "engine": { "maxPolyphony": 10, "arbitration": "reject", "velocityToIntensity": true },
+  "system": { "mockMode": false, "telemetryHz": 10 }
+})JSON";
+}
+
+}  // namespace harm

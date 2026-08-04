@@ -3,6 +3,14 @@
 > [!NOTE]
 > c'est juste une idée !
 
+> [!TIP]
+> Une **base firmware modulaire pour ESP32** (configurable depuis une page web) a
+> été ajoutée. Elle permet de gérer différents types de valves (2-en-1 / 1-en-1),
+> de systèmes d'air (vérin double / soufflet) et d'harmonicas, avec du MIDI en
+> WiFi / BLE / filaire. Voir **[`docs/architecture_fr.md`](docs/architecture_fr.md)**
+> ainsi que `include/` et `src/`.
+> Build : `pio run -e esp32dev` · Tests logiques sur PC : `pio test -e native`.
+
 ------------------------------------------------------------------------------------------------
 
 ## Introduction
@@ -64,7 +72,10 @@ il faut respecter des contraintes de taille pour chaque passage d'air :
 
 ## Schéma electrique
 
-![Schéma Électrique](images/scheme.png)
+Le schéma détaillé reste à produire. En attendant, le **brochage complet** (ESP32,
+PCA9685, driver pas-à-pas, capteurs de pression, fins de course, entrée MIDI DIN)
+est documenté dans la section brochage de
+[`docs/architecture_fr.md`](docs/architecture_fr.md#8-ressources-esp32-classique--brochage).
 
 
 
