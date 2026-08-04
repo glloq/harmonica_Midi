@@ -1,0 +1,70 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Harmonica MIDI — Configuration</title>
+  <link rel="stylesheet" href="/style.css">
+</head>
+<body>
+  <header>
+    <h1>🎵 Harmonica MIDI</h1>
+    <span id="conn" class="badge off">hors ligne</span>
+  </header>
+
+  <main>
+    <section class="card">
+      <h2>État</h2>
+      <div id="status" class="grid">
+        <div>Homing<span id="s-homed">—</span></div>
+        <div>Prêt<span id="s-ready">—</span></div>
+        <div>Piston (mm)<span id="s-piston">—</span></div>
+        <div>Pression souffle<span id="s-pblow">—</span></div>
+        <div>Pression aspir.<span id="s-pdraw">—</span></div>
+        <div>Voix actives<span id="s-voices">—</span></div>
+        <div>Souffle+aspir.<span id="s-mixed">—</span></div>
+        <div>Transports<span id="s-transports">—</span></div>
+        <div>Harmonica<span id="s-harmo">—</span></div>
+        <div>RAM libre<span id="s-heap">—</span></div>
+        <div>Mode simu<span id="s-mock">—</span></div>
+        <div>swap réservoirs<span id="s-gen">—</span></div>
+      </div>
+    </section>
+
+    <section class="card">
+      <h2>Calibration</h2>
+      <div class="row">
+        <label>Servo canal <input id="cal-ch" type="number" min="0" max="31" value="0"></label>
+        <label>Angle <input id="cal-deg" type="range" min="0" max="180" value="90"
+                oninput="document.getElementById('cal-deg-v').textContent=this.value"></label>
+        <span id="cal-deg-v">90</span>°
+        <button onclick="calibrateServo()">Bouger</button>
+      </div>
+      <div class="row">
+        <button onclick="calibrate({target:'piston',action:'home'})">Homing piston</button>
+        <button onclick="calibrate({target:'piston',action:'center'})">Centrer piston</button>
+        <button onclick="calibrate({target:'pressureZero'})">Zéro pression (tare)</button>
+      </div>
+    </section>
+
+    <section class="card">
+      <h2>Presets d'harmonica</h2>
+      <ul id="presets"></ul>
+      <small>Chargez un preset puis fusionnez la clé <code>harmonica</code> dans la config ci-dessous.</small>
+    </section>
+
+    <section class="card">
+      <h2>Configuration (config.json)</h2>
+      <textarea id="cfg" spellcheck="false"></textarea>
+      <div class="row">
+        <button onclick="loadConfig()">Recharger</button>
+        <button class="primary" onclick="saveConfig()">Sauvegarder</button>
+        <button class="warn" onclick="reboot()">Redémarrer</button>
+        <span id="msg"></span>
+      </div>
+    </section>
+  </main>
+
+  <script src="/app.js"></script>
+</body>
+</html>
