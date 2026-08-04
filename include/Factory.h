@@ -35,4 +35,13 @@ struct System {
 
 System* buildSystem(const Config& cfg);
 
+// Échange l'harmonica active à chaud : coupe les notes, recharge le mapping et
+// met à jour la config en mémoire (aucun redémarrage). Le câblage air/valve et
+// le slide restent inchangés — passer au chromatique nécessite aussi slide.enabled.
+inline void applyHarmonica(System& s, const HarmonicaCfg& h) {
+  s.engine.panic();
+  s.map.load(h);
+  s.cfg.harmonica = h;
+}
+
 }  // namespace harm

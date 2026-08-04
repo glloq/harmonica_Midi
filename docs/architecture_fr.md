@@ -137,6 +137,7 @@ Serveur : `ESPAsyncWebServer` (asynchrone → ne bloque jamais la boucle de cont
 | GET  | `/api/status`     | télémétrie (pressions, piston, voix, heap, transport…) |
 | POST | `/api/calibrate`  | `{servo\|piston\|pressureZero}` |
 | GET  | `/api/harmonicas` | presets disponibles |
+| POST | `/api/harmonica`  | échange l'harmonica **à chaud** (objet `harmonica`, sans reboot) + persiste |
 | POST | `/api/reboot`     | redémarrage |
 | WS   | `/ws`             | télémétrie poussée à `system.telemetryHz` |
 
@@ -241,8 +242,12 @@ web + calibration (phase 5), bring-up bi-cœur.
 
 **À poursuivre** : régulation de pression PI plus fine, optimisation « rester
 centré », expression complète (CC1 vibrato, `CC5`/pitch-bend → extension de
-`NoteMapping` pour les bends), presets complets par famille, fusion de preset
-côté UI.
+`NoteMapping` pour les bends), presets complets par famille.
+
+> Échange d'harmonica **à chaud** implémenté : cliquer un preset (ou `POST
+> /api/harmonica`) coupe les notes en cours, recharge le mapping et persiste,
+> sans redémarrage — vérifié par tests natifs (`deserializeHarmonica`,
+> `applyHarmonica`, `saveHarmonica`).
 
 ## 12. Risques & recommandations matérielles
 

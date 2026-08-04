@@ -151,6 +151,47 @@ void test_valve2in1_rail() {
   TEST_ASSERT_EQUAL_INT(c.valve.holes2[0].closedAngle, bus.lastAngle[0]);  // fermé
 }
 
+// ---- Preset d'harmonica autonome -> HarmonicaCfg ---------------------------
+void test_deserialize_harmonica_preset() {
+  const char* preset = R"({"name":"Chromo","holeCount":12,"hasSlide":true,
+    "notes":[{"note":60,"hole":0,"dir":"blow","slide":false},
+             {"note":61,"hole":0,"dir":"blow","slide":true}]})";
+  HarmonicaCfg h;
+  TEST_ASSERT_TRUE(ConfigStore::deserializeHarmonica(preset, h));
+  TEST_ASSERT_TRUE(h.hasSlide);
+  TEST_ASSERT_EQUAL_INT(12, h.holeCount);
+  TEST_ASSERT_EQUAL_INT(2, h.noteCount);
+  HarmonicaMap m; m.load(h);
+  TEST_ASSERT_TRUE(m.needsSlide());
+  TEST_ASSERT_TRUE(m.lookup(61).slide);
+  TEST_ASSERT_FALSE(m.lookup(60).slide);
+}
+
+// ---- Échange d'harmonica à chaud -------------------------------------------
+void test_hot_swap_harmonica() {
+  System* s = buildSystem(defaultCfg());                   // diatonique
+  TEST_ASSERT_TRUE(s->map.lookup(60).valid);
+  s->engine.handleMidi({MidiEvent::NoteOn, 0, 60, 100});
+  TEST_ASSERT_EQUAL_INT(1, s->engine.activeVoiceCount());
+  const char* preset = R"({"name":"X","holeCount":1,"hasSlide":false,"notes":[{"note":72,"hole":0,"dir":"blow"}]})";
+  HarmonicaCfg h; TEST_ASSERT_TRUE(ConfigStore::deserializeHarmonica(preset, h));
+  applyHarmonica(*s, h);
+  TEST_ASSERT_EQUAL_INT(0, s->engine.activeVoiceCount());   // panic a coupé les notes
+  TEST_ASSERT_FALSE(s->map.lookup(60).valid);               // ancien mapping parti
+  TEST_ASSERT_TRUE(s->map.lookup(72).valid);                // nouveau mapping actif
+}
+
+// ---- saveHarmonica : remplace la section harmonica, préserve le reste ------
+void test_save_harmonica_splice() {
+  ConfigStore store; store.begin();
+  TEST_ASSERT_EQUAL_INT(20, store.config().harmonica.noteCount);
+  const char* preset = R"({"name":"Two","holeCount":1,"hasSlide":false,
+    "notes":[{"note":60,"hole":0,"dir":"blow"},{"note":62,"hole":0,"dir":"draw"}]})";
+  TEST_ASSERT_TRUE(store.saveHarmonica(preset));
+  TEST_ASSERT_EQUAL_INT(2, store.config().harmonica.noteCount);
+  TEST_ASSERT_EQUAL_INT((int)ValveImpl::Valve2in1, (int)store.config().valve.impl);  // reste préservé
+}
+
 int main() {
   UNITY_BEGIN();
   RUN_TEST(test_map_lookup);
@@ -161,5 +202,8 @@ int main() {
   RUN_TEST(test_reversal_swaps_rail);
   RUN_TEST(test_midi_parser);
   RUN_TEST(test_valve2in1_rail);
+  RUN_TEST(test_deserialize_harmonica_preset);
+  RUN_TEST(test_hot_swap_harmonica);
+  RUN_TEST(test_save_harmonica_splice);
   return UNITY_END();
 }

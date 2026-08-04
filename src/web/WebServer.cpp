@@ -20,6 +20,7 @@ static ConfigStore*   g_store = nullptr;
 static bool           g_reboot = false;
 static std::string    g_cfgBuf;      // accumulation du corps POST /api/config
 static std::string    g_calBuf;      // accumulation du corps POST /api/calibrate
+static std::string    g_harmBuf;     // accumulation du corps POST /api/harmonica
 
 // ---- Télémétrie -------------------------------------------------------------
 static String buildStatus() {
@@ -99,6 +100,23 @@ void WebServer::begin(System* sys, ConfigStore* store) {
       if (index + len >= total) {
         bool ok = applyCalibrate(g_calBuf.c_str());
         req->send(ok ? 200 : 400, "application/json", ok ? "{\"ok\":true}" : "{\"ok\":false}");
+      }
+    });
+
+  // Échange d'harmonica à chaud : corps = objet "harmonica" (ex. contenu d'un
+  // preset). Applique le mapping en direct (sans reboot) puis persiste.
+  g_server.on("/api/harmonica", HTTP_POST,
+    [](AsyncWebServerRequest*) {},
+    nullptr,
+    [](AsyncWebServerRequest* req, uint8_t* data, size_t len, size_t index, size_t total) {
+      if (index == 0) g_harmBuf.clear();
+      g_harmBuf.append((const char*)data, len);
+      if (index + len >= total) {
+        HarmonicaCfg h;
+        bool ok = ConfigStore::deserializeHarmonica(g_harmBuf.c_str(), h);
+        if (ok) { applyHarmonica(*g_sys, h); g_store->saveHarmonica(g_harmBuf.c_str()); }
+        req->send(ok ? 200 : 400, "application/json",
+                  ok ? "{\"ok\":true}" : "{\"ok\":false,\"error\":\"invalid harmonica\"}");
       }
     });
 

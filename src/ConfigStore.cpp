@@ -44,6 +44,27 @@ static Arbitration parseArb(const char* s) {
   return (s && !std::strcmp(s, "steal")) ? Arbitration::Steal : Arbitration::Reject;
 }
 
+// Remplit une HarmonicaCfg depuis un objet JSON "harmonica" (réutilisé par la
+// config complète ET par le chargement d'un preset autonome).
+static void parseHarmonicaInto(JsonVariantConst h, HarmonicaCfg& hc) {
+  hc = HarmonicaCfg{};
+  copyStr(hc.name, sizeof(hc.name), h["name"] | hc.name);
+  hc.holeCount = h["holeCount"] | hc.holeCount;
+  hc.hasSlide  = h["hasSlide"] | hc.hasSlide;
+  uint16_t n = 0;
+  for (JsonVariantConst e : h["notes"].as<JsonArrayConst>()) {
+    if (n >= MAX_NOTE_ENTRIES) break;
+    auto& N = hc.notes[n];
+    N.note = e["note"] | 0;
+    N.hole = e["hole"] | 0;
+    N.direction = parseDir(e["dir"] | "blow");
+    N.slide = e["slide"] | false;
+    N.intensityScale = e["intensityScale"] | 1.0f;
+    ++n;
+  }
+  hc.noteCount = n;
+}
+
 // ---- JSON -> Config ---------------------------------------------------------
 bool ConfigStore::deserialize(const char* json, Config& c) {
   JsonDocument doc;
@@ -154,21 +175,7 @@ bool ConfigStore::deserialize(const char* json, Config& c) {
   c.slide.restAngle = r["slide"]["restAngle"] | c.slide.restAngle;
 
   // -- harmonica --
-  copyStr(c.harmonica.name, sizeof(c.harmonica.name), r["harmonica"]["name"] | c.harmonica.name);
-  c.harmonica.holeCount = r["harmonica"]["holeCount"] | c.harmonica.holeCount;
-  c.harmonica.hasSlide = r["harmonica"]["hasSlide"] | c.harmonica.hasSlide;
-  uint16_t n = 0;
-  for (JsonVariantConst e : r["harmonica"]["notes"].as<JsonArrayConst>()) {
-    if (n >= MAX_NOTE_ENTRIES) break;
-    auto& N = c.harmonica.notes[n];
-    N.note = e["note"] | 0;
-    N.hole = e["hole"] | 0;
-    N.direction = parseDir(e["dir"] | "blow");
-    N.slide = e["slide"] | false;
-    N.intensityScale = e["intensityScale"] | 1.0f;
-    ++n;
-  }
-  c.harmonica.noteCount = n;
+  parseHarmonicaInto(r["harmonica"], c.harmonica);
 
   // -- engine / system --
   c.engine.maxPolyphony = r["engine"]["maxPolyphony"] | c.engine.maxPolyphony;
@@ -177,6 +184,26 @@ bool ConfigStore::deserialize(const char* json, Config& c) {
   c.system.mockMode = r["system"]["mockMode"] | c.system.mockMode;
   c.system.telemetryHz = r["system"]["telemetryHz"] | c.system.telemetryHz;
   return true;
+}
+
+// JSON "harmonica" autonome (fichier preset) -> HarmonicaCfg.
+bool ConfigStore::deserializeHarmonica(const char* json, HarmonicaCfg& out) {
+  JsonDocument doc;
+  if (::deserializeJson(doc, json)) return false;
+  parseHarmonicaInto(doc.as<JsonVariantConst>(), out);
+  return true;
+}
+
+// Remplace la section "harmonica" de la config courante par l'objet fourni,
+// puis persiste (save() valide + écrit + recharge cfg_).
+bool ConfigStore::saveHarmonica(const char* harmonicaJson) {
+  JsonDocument doc, hdoc;
+  if (::deserializeJson(doc, raw_.c_str())) return false;
+  if (::deserializeJson(hdoc, harmonicaJson)) return false;
+  doc["harmonica"] = hdoc.as<JsonObjectConst>();   // copie profonde du sous-arbre
+  std::string out;
+  serializeJson(doc, out);
+  return save(out.c_str());
 }
 
 // ---- Persistance ------------------------------------------------------------

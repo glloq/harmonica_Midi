@@ -49,6 +49,10 @@ public:
   uint8_t  activeVoiceCount() const { uint8_t n = 0; for (auto& v : voices_) if (v.active) ++n; return n; }
   Direction activeDirection() const { for (auto& v : voices_) if (v.active) return v.dir; return Direction::Closed; }
 
+  // Coupe toutes les notes (ferme les valves, relâche l'air, slide au repos).
+  // À appeler avant un échange d'harmonica à chaud (les voix référencent des trous).
+  void panic() { allNotesOff(); }
+
 private:
   struct Voice { bool active=false; uint8_t note=0; uint8_t hole=0; Direction dir=Direction::Closed; bool slide=false; float base=0.0f; };
 
