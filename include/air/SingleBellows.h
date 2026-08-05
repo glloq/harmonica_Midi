@@ -61,12 +61,13 @@ public:
     if (dt > 0.2f) dt = 0.2f;
 
     if (active_ != Direction::Closed) {
-      const float out = pi_.update(cfg_.pressureTargetKpa - std::fabs(sensor_.readKpa()), dt);
+      setpoint_ = intensity_ * cfg_.pressureTargetKpa;   // intensité demandée -> pression
+      const float out = pi_.update(setpoint_ - std::fabs(sensor_.readKpa()), dt);
       const float end = (active_ == Direction::Blow) ? 0.0f : cfg_.travelMm;  // comprime / détend
       const float pos = motor_.positionMm();
       motor_.moveToMm(pos + (end - pos) * out);   // avance proportionnellement à l'erreur
     } else {
-      pi_.reset();
+      pi_.reset(); setpoint_ = 0.0f;
     }
     motor_.run();
   }
@@ -91,6 +92,9 @@ private:
   float     intensity_ = 0.0f;
   PIController pi_;
   uint32_t  lastMs_ = 0;
+  float     setpoint_ = 0.0f;
+public:
+  float currentSetpointKpa() const override { return setpoint_; }
 };
 
 }  // namespace harm

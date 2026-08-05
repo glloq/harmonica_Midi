@@ -1,15 +1,14 @@
 // ============================================================================
 //  WebServer.h — page de configuration + API REST/WebSocket (ESP32).
 //
-//  Implémentation dans src/web/WebServer.cpp (ESPAsyncWebServer, sous garde
-//  Arduino). Sert les assets LittleFS et expose :
-//    GET  /api/config      -> config.json brut
-//    POST /api/config      -> valide + sauvegarde atomique
-//    GET  /api/status      -> télémétrie instantanée (JSON)
-//    POST /api/calibrate   -> {servo | piston | pressureZero}
-//    GET  /api/harmonicas  -> presets disponibles
-//    POST /api/reboot      -> redémarrage (applique une config nécessitant reboot)
-//    WS   /ws              -> télémétrie poussée à system.telemetryHz
+//  Sécurité & concurrence :
+//   - toutes les mutations matérielles (calibrate / homing / centrage / tare /
+//     échange d'harmonica) sont ENVOYÉES au Core 1 via une file de commandes —
+//     aucun accès I2C ni à l'état moteur depuis le Core 0/async.
+//   - la télémétrie est lue depuis un INSTANTANÉ publié par le Core 1 (pas d'I2C
+//     hors Core 1).
+//   - GET /api/config masque les secrets ; /config.json est bloqué ; Basic Auth
+//     optionnelle (config web.password).
 // ============================================================================
 #pragma once
 #include "../Factory.h"
@@ -17,11 +16,34 @@
 
 namespace harm {
 
+// Commande émise par le web, exécutée sur le Core 1.
+struct WebCommand {
+  enum Type : uint8_t { ServoUs, ServoDeg, PistonHome, PistonCenter, PressureTare, SwapHarmonica } type;
+  uint8_t       channel = 0;
+  int           value = 0;
+  HarmonicaCfg* harmonica = nullptr;   // SwapHarmonica : appliqué puis libéré par le Core 1
+};
+
+// Instantané de télémétrie publié par le Core 1, consommé par le web.
+struct StatusSnapshot {
+  AirStatus air;
+  uint8_t   voices = 0;
+  bool      mixedCapable = false;
+  float     pitchBend = 0.0f, modulation = 0.0f, setpointKpa = 0.0f;
+  uint8_t   transports = 0;
+  bool      mock = false;
+  char      harmonica[32] = {0};
+  uint32_t  droppedMidi = 0;
+};
+
 class WebServer {
 public:
-  void begin(System* sys, ConfigStore* store);
-  void loop(uint32_t nowMs);          // pousse la télémétrie WS
+  // cmdQueue : QueueHandle_t (passé en void* pour ne pas imposer FreeRTOS ici).
+  void begin(System* sys, ConfigStore* store, void* cmdQueue);
+  void loop(uint32_t nowMs);            // pousse la télémétrie WS (snapshot)
   bool rebootRequested() const;
+
+  static void publishSnapshot(const StatusSnapshot& s);   // appelé par le Core 1
 };
 
 }  // namespace harm

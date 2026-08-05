@@ -27,6 +27,7 @@ public:
   virtual bool  isHomed() const = 0;
   virtual void  startCentering() = 0;                // ouvre les 2 valves, pas de son
   virtual AirStatus status() const = 0;
+  virtual float currentSetpointKpa() const { return 0.0f; }   // consigne PI (télémétrie)
 };
 
 }  // namespace harm

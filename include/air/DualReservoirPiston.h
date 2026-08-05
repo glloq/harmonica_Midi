@@ -28,6 +28,10 @@ public:
     : piston_(piston), pR1_(pR1), pR2_(pR2), endstops_(endstops), servos_(servos), cfg_(cfg) {}
 
   bool begin() override {
+    // Garde-fou : une marge d'inversion >= travel/2 provoquerait une tempête
+    // d'inversions à chaque tick (bandes de fin de course qui se chevauchent).
+    if (cfg_.reversalMarginMm > cfg_.travelMm * 0.45f) cfg_.reversalMarginMm = cfg_.travelMm * 0.45f;
+    if (cfg_.reversalMarginMm < 1.0f) cfg_.reversalMarginMm = 1.0f;
     piston_.begin();
     piston_.setKinematics(cfg_.maxSpeedMmS, cfg_.accelMmS2, cfg_.stepsPerMm);
     piston_.enable(true);
@@ -42,7 +46,12 @@ public:
     return true;
   }
 
-  void startHoming() override { state_ = State::Homing; piston_.moveToMm(-2.0f * cfg_.travelMm); }
+  void startHoming() override {
+    state_ = State::Homing;
+    homingDeadlineMs_ = 0;   // fixé au premier tick de Homing
+    // Va vers l'endstop configuré (R1 -> vers 0, R2 -> vers travel).
+    piston_.moveToMm(cfg_.homeOnR1 ? -2.0f * cfg_.travelMm : 3.0f * cfg_.travelMm);
+  }
   bool isHomed() const override { return homed_; }
 
   void startCentering() override {
@@ -77,10 +86,18 @@ public:
   void update(uint32_t nowMs) override {
     switch (state_) {
       case State::Boot: break;
-      case State::Homing:
+      case State::Homing: {
         piston_.run();
-        if (endstops_.triggeredR1()) { piston_.zero(); homed_ = true; startCentering(); }
+        if (homingDeadlineMs_ == 0)
+          homingDeadlineMs_ = nowMs + (uint32_t)((2.0f * cfg_.travelMm / cfg_.maxSpeedMmS) * 1000.0f) + 5000u;
+        const bool hit = cfg_.homeOnR1 ? endstops_.triggeredR1() : endstops_.triggeredR2();
+        if (hit || nowMs >= homingDeadlineMs_) {       // endstop atteint OU timeout de sécurité
+          piston_.setPositionMm(cfg_.homeOnR1 ? 0.0f : cfg_.travelMm);
+          homed_ = true;
+          startCentering();
+        }
         break;
+      }
       case State::Centering:
         piston_.run();
         if (!piston_.isRunning()) state_ = State::Running;
@@ -110,10 +127,14 @@ private:
   int feedDir() const { return (blowRail_ == Rail::A) ? -1 : +1; }
   float feedEndMm() const { return (feedDir() < 0) ? 0.0f : cfg_.travelMm; }
 
-  float railKpa(Rail r) const {
-    // magnitude : surpression pour le rail souffle, |dépression| pour l'aspiration
+  float railKpa(Rail r) const {   // magnitude (télémétrie / currentPressure)
     if (r == Rail::A) return std::fabs(const_cast<IPressureSensor&>(pR1_).readKpa());
     if (r == Rail::B) return std::fabs(const_cast<IPressureSensor&>(pR2_).readKpa());
+    return 0.0f;
+  }
+  float railKpaSigned(Rail r) const {   // signé (comprimé = +, détendu = -) pour la régulation
+    if (r == Rail::A) return const_cast<IPressureSensor&>(pR1_).readKpa();
+    if (r == Rail::B) return const_cast<IPressureSensor&>(pR2_).readKpa();
     return 0.0f;
   }
 
@@ -156,11 +177,15 @@ private:
                                                : (pos >= cfg_.travelMm * 0.6f);
     if (atFeedEnd || (idle && wayPastCenter)) { pi_.reset(); reverse(); return; }
 
-    if (idle) { pi_.reset(); piston_.moveToMm(pos); return; }
+    if (idle) { pi_.reset(); setpoint_ = 0.0f; piston_.moveToMm(pos); return; }
 
-    // Régulation PI : on avance vers l'extrémité "feed" d'une fraction de course
-    // (0..1) proportionnelle à l'erreur de pression du rail souffle.
-    const float out = pi_.update(cfg_.pressureTargetKpa - railKpa(blowRail_), dt);
+    // Consigne = intensité demandée × cible (=> vélocité / CC breath/expression/vibrato
+    // audibles) ; la direction la plus forte fixe la pression.
+    const float demand = (blowDemand_ > drawDemand_) ? blowDemand_ : drawDemand_;
+    setpoint_ = demand * cfg_.pressureTargetKpa;
+    // Régulation PI sur le retour SIGNÉ du rail souffle (comprimé = +). Après une
+    // inversion le rail est en dépression -> erreur grande -> le piston recomprime.
+    const float out = pi_.update(setpoint_ - railKpaSigned(blowRail_), dt);
     float target = pos + feedDir() * out * cfg_.travelMm;
     if (target < 0.0f) target = 0.0f;
     else if (target > cfg_.travelMm) target = cfg_.travelMm;
@@ -182,6 +207,10 @@ private:
   int8_t   valveStateA_ = -1, valveStateB_ = -1;   // -1 inconnu, 0 fermé, 1 ouvert
   PIController pi_;
   uint32_t lastMs_ = 0;
+  uint32_t homingDeadlineMs_ = 0;
+  float    setpoint_ = 0.0f;
+public:
+  float currentSetpointKpa() const override { return setpoint_; }   // consigne PI (test/télémétrie)
 };
 
 }  // namespace harm

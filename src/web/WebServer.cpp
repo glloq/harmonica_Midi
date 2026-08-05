@@ -1,6 +1,6 @@
 // ============================================================================
 //  WebServer.cpp — serveur web asynchrone (ESP32 uniquement).
-//  Glue ESPAsyncWebServer ; validation fine sur matériel = phase 5.
+//  Voir WebServer.h pour le modèle sécurité/concurrence.
 // ============================================================================
 #include "web/WebServer.h"
 
@@ -9,136 +9,181 @@
 #include <LittleFS.h>
 #include <ESPAsyncWebServer.h>
 #include <ArduinoJson.h>
+#include <freertos/FreeRTOS.h>
+#include <freertos/queue.h>
 
 namespace harm {
 
-// Instances et état partagés (un seul serveur dans le firmware).
 static AsyncWebServer g_server(80);
 static AsyncWebSocket g_ws("/ws");
 static System*        g_sys   = nullptr;
 static ConfigStore*   g_store = nullptr;
+static QueueHandle_t  g_cmdQueue = nullptr;
 static bool           g_reboot = false;
-static std::string    g_cfgBuf;      // accumulation du corps POST /api/config
-static std::string    g_calBuf;      // accumulation du corps POST /api/calibrate
-static std::string    g_harmBuf;     // accumulation du corps POST /api/harmonica
+static std::string    g_cfgBuf, g_calBuf, g_harmBuf;
+static const size_t   kMaxBody = 8192;   // plafond dur des corps POST
 
-// ---- Télémétrie -------------------------------------------------------------
+static portMUX_TYPE   g_snapMux = portMUX_INITIALIZER_UNLOCKED;
+static StatusSnapshot g_snap;
+
+// ---- Auth (Basic) — désactivée si web.password vide ------------------------
+static bool authed(AsyncWebServerRequest* req) {
+  if (!g_sys || g_sys->cfg.web.password[0] == '\0') return true;
+  return req->authenticate(g_sys->cfg.web.user, g_sys->cfg.web.password);
+}
+static bool requireAuth(AsyncWebServerRequest* req) {
+  if (authed(req)) return true;
+  req->requestAuthentication();
+  return false;
+}
+
+// ---- File de commandes vers le Core 1 --------------------------------------
+static bool enqueue(const WebCommand& c) {
+  return g_cmdQueue && xQueueSend(g_cmdQueue, &c, 0) == pdTRUE;
+}
+
+// ---- Télémétrie (lecture de l'instantané, aucun I2C ici) -------------------
 static String buildStatus() {
+  StatusSnapshot s;
+  portENTER_CRITICAL(&g_snapMux); s = g_snap; portEXIT_CRITICAL(&g_snapMux);
   JsonDocument d;
-  AirStatus a = g_sys->air->status();
-  d["homed"] = a.homed;
-  d["ready"] = a.ready;
-  d["pistonMm"] = a.pistonMm;
-  d["pressureBlow"] = a.pressureBlow;
-  d["pressureDraw"] = a.pressureDraw;
-  d["assignmentGen"] = a.assignmentGen;
-  d["voices"] = g_sys->engine.activeVoiceCount();
-  d["mixedCapable"] = g_sys->engine.mixedCapable();
-  d["pitchBend"] = g_sys->engine.pitchBend();
-  d["modulation"] = g_sys->engine.modulationDepth();
-  d["transports"] = g_sys->router.transportCount();
-  d["mock"] = g_sys->mock;
-  d["harmonica"] = g_sys->map.name();
+  d["homed"] = s.air.homed;
+  d["ready"] = s.air.ready;
+  d["pistonMm"] = s.air.pistonMm;
+  d["pressureBlow"] = s.air.pressureBlow;
+  d["pressureDraw"] = s.air.pressureDraw;
+  d["assignmentGen"] = s.air.assignmentGen;
+  d["setpointKpa"] = s.setpointKpa;
+  d["voices"] = s.voices;
+  d["mixedCapable"] = s.mixedCapable;
+  d["pitchBend"] = s.pitchBend;
+  d["modulation"] = s.modulation;
+  d["transports"] = s.transports;
+  d["mock"] = s.mock;
+  d["harmonica"] = s.harmonica;
+  d["droppedMidi"] = s.droppedMidi;
   d["freeHeap"] = (uint32_t)ESP.getFreeHeap();
   String out; serializeJson(d, out); return out;
 }
 
-// ---- Calibration ------------------------------------------------------------
-static bool applyCalibrate(const char* json) {
+void WebServer::publishSnapshot(const StatusSnapshot& s) {
+  portENTER_CRITICAL(&g_snapMux); g_snap = s; portEXIT_CRITICAL(&g_snapMux);
+}
+
+// ---- Config masquée (jamais les secrets en clair) --------------------------
+static String redactedConfig() {
+  JsonDocument d;
+  if (deserializeJson(d, g_store->raw())) return String("{}");
+  if (!d["midi"]["wifi"]["password"].isNull())   d["midi"]["wifi"]["password"] = "";
+  if (!d["midi"]["wifi"]["apPassword"].isNull()) d["midi"]["wifi"]["apPassword"] = "";
+  if (!d["web"]["password"].isNull())            d["web"]["password"] = "";
+  String out; serializeJson(d, out); return out;
+}
+
+// ---- Calibration -> commande Core 1 ----------------------------------------
+static bool queueCalibrate(const char* json) {
   JsonDocument d;
   if (deserializeJson(d, json)) return false;
   const char* target = d["target"] | "";
+  WebCommand cmd{};
   if (!strcmp(target, "servo")) {
-    uint8_t ch = d["channel"] | 0;
-    if (d["us"].is<int>())       g_sys->servos->writeMicros(ch, d["us"].as<int>());
-    else                         g_sys->servos->writeAngle(ch, d["deg"] | 90);
-    return true;
-  }
-  if (!strcmp(target, "piston")) {
+    cmd.channel = d["channel"] | 0;
+    if (d["us"].is<int>()) { cmd.type = WebCommand::ServoUs; cmd.value = d["us"].as<int>(); }
+    else                   { cmd.type = WebCommand::ServoDeg; cmd.value = d["deg"] | 90; }
+  } else if (!strcmp(target, "piston")) {
     const char* action = d["action"] | "center";
-    if (!strcmp(action, "home")) g_sys->air->startHoming();
-    else                         g_sys->air->startCentering();
-    return true;
-  }
-  if (!strcmp(target, "pressureZero")) {
-    if (g_sys->pA) g_sys->pA->tare();
-    if (g_sys->pB) g_sys->pB->tare();
-    return true;
-  }
-  return false;
+    cmd.type = (!strcmp(action, "home")) ? WebCommand::PistonHome : WebCommand::PistonCenter;
+  } else if (!strcmp(target, "pressureZero")) {
+    cmd.type = WebCommand::PressureTare;
+  } else return false;
+  return enqueue(cmd);
+}
+
+// ---- Accumulation de corps bornée ------------------------------------------
+static void appendBody(std::string& buf, uint8_t* data, size_t len, size_t index) {
+  if (index == 0) buf.clear();
+  if (buf.size() + len <= kMaxBody) buf.append((const char*)data, len);
 }
 
 // ---- Routes -----------------------------------------------------------------
-void WebServer::begin(System* sys, ConfigStore* store) {
-  g_sys = sys; g_store = store; g_reboot = false;
+void WebServer::begin(System* sys, ConfigStore* store, void* cmdQueue) {
+  g_sys = sys; g_store = store; g_cmdQueue = (QueueHandle_t)cmdQueue; g_reboot = false;
 
   g_server.on("/api/config", HTTP_GET, [](AsyncWebServerRequest* req) {
-    req->send(200, "application/json", g_store->raw());
+    if (!requireAuth(req)) return;
+    req->send(200, "application/json", redactedConfig());   // secrets masqués
   });
 
   g_server.on("/api/config", HTTP_POST,
-    [](AsyncWebServerRequest*) { /* réponse envoyée par le handler de corps */ },
+    [](AsyncWebServerRequest* req) {                          // après corps complet
+      if (!requireAuth(req)) { g_cfgBuf.clear(); return; }
+      bool ok = !g_cfgBuf.empty() && g_store->save(g_cfgBuf.c_str());
+      req->send(ok ? 200 : 400, "application/json",
+                ok ? "{\"ok\":true,\"reboot\":true}" : "{\"ok\":false,\"error\":\"invalid or empty\"}");
+      g_cfgBuf.clear();
+    },
     nullptr,
-    [](AsyncWebServerRequest* req, uint8_t* data, size_t len, size_t index, size_t total) {
-      if (index == 0) g_cfgBuf.clear();
-      g_cfgBuf.append((const char*)data, len);
-      if (index + len >= total) {
-        bool ok = g_store->save(g_cfgBuf.c_str());
-        req->send(ok ? 200 : 400, "application/json",
-                  ok ? "{\"ok\":true,\"reboot\":true}" : "{\"ok\":false,\"error\":\"invalid config\"}");
-      }
-    });
+    [](AsyncWebServerRequest*, uint8_t* data, size_t len, size_t index, size_t) { appendBody(g_cfgBuf, data, len, index); });
 
   g_server.on("/api/status", HTTP_GET, [](AsyncWebServerRequest* req) {
+    if (!requireAuth(req)) return;
     req->send(200, "application/json", buildStatus());
   });
 
   g_server.on("/api/calibrate", HTTP_POST,
-    [](AsyncWebServerRequest*) {},
+    [](AsyncWebServerRequest* req) {
+      if (!requireAuth(req)) { g_calBuf.clear(); return; }
+      bool ok = !g_calBuf.empty() && queueCalibrate(g_calBuf.c_str());
+      req->send(ok ? 200 : 400, "application/json", ok ? "{\"ok\":true}" : "{\"ok\":false}");
+      g_calBuf.clear();
+    },
     nullptr,
-    [](AsyncWebServerRequest* req, uint8_t* data, size_t len, size_t index, size_t total) {
-      if (index == 0) g_calBuf.clear();
-      g_calBuf.append((const char*)data, len);
-      if (index + len >= total) {
-        bool ok = applyCalibrate(g_calBuf.c_str());
-        req->send(ok ? 200 : 400, "application/json", ok ? "{\"ok\":true}" : "{\"ok\":false}");
-      }
-    });
+    [](AsyncWebServerRequest*, uint8_t* data, size_t len, size_t index, size_t) { appendBody(g_calBuf, data, len, index); });
 
-  // Échange d'harmonica à chaud : corps = objet "harmonica" (ex. contenu d'un
-  // preset). Applique le mapping en direct (sans reboot) puis persiste.
   g_server.on("/api/harmonica", HTTP_POST,
-    [](AsyncWebServerRequest*) {},
+    [](AsyncWebServerRequest* req) {
+      if (!requireAuth(req)) { g_harmBuf.clear(); return; }
+      HarmonicaCfg* h = new HarmonicaCfg();
+      bool ok = !g_harmBuf.empty() && ConfigStore::deserializeHarmonica(g_harmBuf.c_str(), *h) && h->noteCount > 0;
+      if (ok && enqueue({WebCommand::SwapHarmonica, 0, 0, h})) {
+        g_store->saveHarmonica(g_harmBuf.c_str());             // persistance (LittleFS)
+      } else { delete h; ok = false; }
+      req->send(ok ? 200 : 400, "application/json",
+                ok ? "{\"ok\":true}" : "{\"ok\":false,\"error\":\"invalid or empty harmonica\"}");
+      g_harmBuf.clear();
+    },
     nullptr,
-    [](AsyncWebServerRequest* req, uint8_t* data, size_t len, size_t index, size_t total) {
-      if (index == 0) g_harmBuf.clear();
-      g_harmBuf.append((const char*)data, len);
-      if (index + len >= total) {
-        HarmonicaCfg h;
-        bool ok = ConfigStore::deserializeHarmonica(g_harmBuf.c_str(), h);
-        if (ok) { applyHarmonica(*g_sys, h); g_store->saveHarmonica(g_harmBuf.c_str()); }
-        req->send(ok ? 200 : 400, "application/json",
-                  ok ? "{\"ok\":true}" : "{\"ok\":false,\"error\":\"invalid harmonica\"}");
-      }
-    });
+    [](AsyncWebServerRequest*, uint8_t* data, size_t len, size_t index, size_t) { appendBody(g_harmBuf, data, len, index); });
 
   g_server.on("/api/harmonicas", HTTP_GET, [](AsyncWebServerRequest* req) {
+    if (!requireAuth(req)) return;
     JsonDocument d; JsonArray arr = d.to<JsonArray>();
     File dir = LittleFS.open("/presets");
     if (dir && dir.isDirectory()) {
-      for (File f = dir.openNextFile(); f; f = dir.openNextFile()) arr.add(String(f.name()));
+      for (File f = dir.openNextFile(); f; f = dir.openNextFile()) {
+        String n = f.name();
+        const char* c = n.c_str();
+        const char* base = strrchr(c, '/');
+        arr.add(base ? base + 1 : c);                          // basename stable (quel que soit le core)
+      }
     }
     String out; serializeJson(d, out);
     req->send(200, "application/json", out);
   });
 
   g_server.on("/api/reboot", HTTP_POST, [](AsyncWebServerRequest* req) {
+    if (!requireAuth(req)) return;
     req->send(200, "application/json", "{\"ok\":true}");
     g_reboot = true;
   });
 
+  // Ne jamais servir les fichiers de config en clair (fuite de secrets).
+  auto forbid = [](AsyncWebServerRequest* req) { req->send(403, "text/plain", "forbidden"); };
+  g_server.on("/config.json", HTTP_GET, forbid);
+  g_server.on("/config.tmp", HTTP_GET, forbid);
+
   g_ws.onEvent([](AsyncWebSocket*, AsyncWebSocketClient* c, AwsEventType type, void*, uint8_t*, size_t) {
-    if (type == WS_EVT_CONNECT) c->text(buildStatus());
+    if (type == WS_EVT_CONNECT) c->text(buildStatus());        // snapshot (pas d'I2C)
   });
   g_server.addHandler(&g_ws);
 

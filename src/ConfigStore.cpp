@@ -188,6 +188,8 @@ bool ConfigStore::deserialize(const char* json, Config& c) {
   c.engine.velocityToIntensity = r["engine"]["velocityToIntensity"] | c.engine.velocityToIntensity;
   c.engine.vibratoRateHz = r["engine"]["vibratoRateHz"] | c.engine.vibratoRateHz;
   c.engine.vibratoDepth = r["engine"]["vibratoDepth"] | c.engine.vibratoDepth;
+  copyStr(c.web.user, sizeof(c.web.user), r["web"]["user"] | c.web.user);
+  copyStr(c.web.password, sizeof(c.web.password), r["web"]["password"] | c.web.password);
   c.system.mockMode = r["system"]["mockMode"] | c.system.mockMode;
   c.system.telemetryHz = r["system"]["telemetryHz"] | c.system.telemetryHz;
   return true;

@@ -85,6 +85,8 @@ function renderStatus(s) {
   $('s-heap').textContent = s.freeHeap ? (s.freeHeap / 1024).toFixed(0) + ' Ko' : '—';
   $('s-mock').textContent = yn(s.mock);
   $('s-gen').textContent = s.assignmentGen ?? 0;
+  $('s-setpoint').textContent = Number(s.setpointKpa ?? 0).toFixed(2);
+  $('s-dropped').textContent = s.droppedMidi ?? 0;
 }
 function setConn(on) {
   const b = $('conn'); b.textContent = on ? 'en ligne' : 'hors ligne';
@@ -94,7 +96,7 @@ function setConn(on) {
 let ws = null, pollTimer = null;
 function startWs() {
   try {
-    ws = new WebSocket('ws://' + location.host + '/ws');
+    ws = new WebSocket((location.protocol === 'https:' ? 'wss://' : 'ws://') + location.host + '/ws');
     ws.onopen = () => { setConn(true); if (pollTimer) { clearInterval(pollTimer); pollTimer = null; } };
     ws.onmessage = (ev) => { try { renderStatus(JSON.parse(ev.data)); } catch (e) {} };
     ws.onclose = () => { setConn(false); ws = null; startPolling(); setTimeout(startWs, 4000); };

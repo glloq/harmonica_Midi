@@ -69,5 +69,6 @@
     ]
   },
   "engine": { "maxPolyphony": 10, "arbitration": "reject", "velocityToIntensity": true, "vibratoRateHz": 5.0, "vibratoDepth": 0.25 },
+  "web": { "user": "admin", "password": "" },
   "system": { "mockMode": false, "telemetryHz": 10 }
 }

@@ -231,11 +231,54 @@ void test_vibrato_engine() {
   HarmonicaMap map; map.load(c.harmonica);
   NoteEngine eng; eng.begin(&air, &valve, &map, nullptr, c.engine);
   eng.handleMidi({MidiEvent::NoteOn, 0, 60, 64});                    // base ~0.5 (souffle)
-  float i0 = air.lastBlow;
+  float nominal = air.lastBlow;                                      // vibScale = 1
   eng.handleMidi({MidiEvent::ControlChange, 0, CC_MODULATION, 127}); // vibrato à fond
-  eng.update(0);                                                     // sin(0)=0 -> inchangé
-  eng.update(50);                                                    // quart de période (5 Hz)
-  TEST_ASSERT_TRUE(air.lastBlow > i0 + 0.05f);                       // l'intensité a monté
+  eng.update(150);                                                   // 3/4 période @5Hz -> creux
+  TEST_ASSERT_TRUE(air.lastBlow < nominal - 0.05f);                  // amplitude modulée vers le bas
+  eng.update(50);                                                    // 1/4 période -> sommet ~= nominal
+  TEST_ASSERT_FLOAT_WITHIN(0.02f, nominal, air.lastBlow);            // jamais au-dessus (pas d'écrêtage)
+}
+
+// ---- Vérin double : intensité -> consigne de pression (fix actionnement) ----
+void test_pi_intensity_setpoint() {
+  Config c = defaultCfg();
+  MockServoBus bus; MockStepper st; MockPressure p1, p2; MockEndstops es;
+  es.bindPiston(&st, c.air.dual.travelMm);
+  DualReservoirPiston air(st, p1, p2, es, bus, c.air.dual);
+  air.begin(); air.startHoming();
+  for (int i = 0; i < 300 && !air.isHomed(); ++i) air.update(i);
+  air.request(Direction::Blow, 1.0f); air.update(1000);
+  st.posMm = 150.0f; st.targetMm = 150.0f; p1.setKpa(0.0f); p2.setKpa(0.0f);
+  air.request(Direction::Blow, 1.0f); air.update(1001);
+  TEST_ASSERT_FLOAT_WITHIN(0.001f, c.air.dual.pressureTargetKpa, air.currentSetpointKpa());
+  air.request(Direction::Blow, 0.5f); air.update(1002);
+  TEST_ASSERT_FLOAT_WITHIN(0.001f, c.air.dual.pressureTargetKpa * 0.5f, air.currentSetpointKpa());
+}
+
+// ---- Vérin double : retour SIGNÉ -> recompression après dépression (fix fabs) --
+void test_pi_signed_feedback() {
+  Config c = defaultCfg();
+  MockServoBus bus; MockStepper st; MockPressure p1, p2; MockEndstops es;
+  es.bindPiston(&st, c.air.dual.travelMm);
+  DualReservoirPiston air(st, p1, p2, es, bus, c.air.dual);
+  air.begin(); air.startHoming();
+  for (int i = 0; i < 300 && !air.isHomed(); ++i) air.update(i);
+  air.request(Direction::Blow, 1.0f); air.update(1000);
+  st.posMm = 150.0f; st.targetMm = 150.0f;
+  p1.setKpa(-0.4f); p2.setKpa(-0.4f);        // rail souffle en dépression
+  air.update(1001);
+  // Signé : erreur = 0.3-(-0.4) > 0 -> piston commandé pour recomprimer (≠ figé).
+  TEST_ASSERT_TRUE(st.targetMm != 150.0f);
+}
+
+// ---- Note vers un trou hors holeCount : ignorée ----------------------------
+void test_hole_out_of_range_ignored() {
+  HarmonicaCfg h; h.holeCount = 4; h.noteCount = 2;
+  h.notes[0] = {60, 2, Direction::Blow, false, 1.0f, 0.0f};   // trou 2 < 4 : valide
+  h.notes[1] = {64, 9, Direction::Blow, false, 1.0f, 0.0f};   // trou 9 >= 4 : ignoré
+  HarmonicaMap m; m.load(h);
+  TEST_ASSERT_TRUE(m.lookup(60).valid);
+  TEST_ASSERT_FALSE(m.lookup(64).valid);
 }
 
 // ---- Pitch-bend (parseur + moteur) -----------------------------------------
@@ -283,6 +326,9 @@ int main() {
   RUN_TEST(test_save_harmonica_splice);
   RUN_TEST(test_pi_controller);
   RUN_TEST(test_vibrato_engine);
+  RUN_TEST(test_pi_intensity_setpoint);
+  RUN_TEST(test_pi_signed_feedback);
+  RUN_TEST(test_hole_out_of_range_ignored);
   RUN_TEST(test_pitchbend);
   RUN_TEST(test_bend_mapping);
   return UNITY_END();

@@ -66,7 +66,7 @@ public:
     if (posMm < targetMm)      posMm = (targetMm - posMm < stepMm) ? targetMm : posMm + stepMm;
     else if (posMm > targetMm) posMm = (posMm - targetMm < stepMm) ? targetMm : posMm - stepMm;
   }
-  void  zero() override { posMm = 0; targetMm = 0; MockLog::line("[stepper] zero"); }
+  void  setPositionMm(float mm) override { posMm = mm; targetMm = mm; MockLog::line("[stepper] setPos=%d", (int)mm); }
 };
 
 // ---- Capteur de pression simulé --------------------------------------------

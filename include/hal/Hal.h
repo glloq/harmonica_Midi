@@ -30,8 +30,8 @@ public:
   virtual void  moveToMm(float mm) = 0;
   virtual float positionMm() const = 0;
   virtual bool  isRunning() const = 0;
-  virtual void  run() = 0;    // à appeler très fréquemment (boucle de contrôle)
-  virtual void  zero() = 0;   // fixe la position courante comme origine (0 mm)
+  virtual void  run() = 0;              // à appeler très fréquemment (boucle de contrôle)
+  virtual void  setPositionMm(float mm) = 0;  // fixe la position courante (homing)
 };
 
 // Capteur de pression (gauge/différentiel), magnitude en kPa après tare.

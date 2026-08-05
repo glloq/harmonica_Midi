@@ -49,7 +49,7 @@ public:
     uint16_t gen = air_->status().assignmentGen;
     if (gen != lastAssignmentGen_) { lastAssignmentGen_ = gen; reapplyValves(); }
     float vs = (activeVoiceCount() > 0) ? vibratoScale(nowMs) : 1.0f;
-    if (vs != vibScale_) { vibScale_ = vs; recomputeAir(); }   // vibrato live (CC1)
+    if (std::fabs(vs - vibScale_) > 1e-3f) { vibScale_ = vs; recomputeAir(); }   // vibrato live (CC1)
   }
 
   bool     mixedCapable() const { return mixedCapable_; }
@@ -72,10 +72,12 @@ private:
   }
 
   // Facteur de vibrato de pression piloté par CC1 (modulation). 1.0 si inactif.
+  // Modulation d'amplitude vers le BAS uniquement (plage [1-depth, 1]) : jamais
+  // écrêtée à 1.0, donc symétrique même à pleine intensité (base ≈ 1.0).
   float vibratoScale(uint32_t ms) const {
     if (modulation_ <= 0.0f) return 1.0f;
     const float depth = modulation_ * cfg_.vibratoDepth;
-    return 1.0f + depth * std::sin(6.2831853f * cfg_.vibratoRateHz * (ms / 1000.0f));
+    return 1.0f - depth * (0.5f - 0.5f * std::sin(6.2831853f * cfg_.vibratoRateHz * (ms / 1000.0f)));
   }
 
   void noteOn(uint8_t note, uint8_t vel) {

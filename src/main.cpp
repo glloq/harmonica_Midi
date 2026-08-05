@@ -26,22 +26,72 @@ static System*     g_sys = nullptr;
 // ============================================================================
 #if HARM_ARDUINO
 #include <Arduino.h>
+#include <Wire.h>
 #include <WiFi.h>
 #include "web/WebServer.h"
 
-static QueueHandle_t g_queue = nullptr;
-static WebServer     g_web;
-static bool          g_webActive = false;
+static QueueHandle_t     g_queue = nullptr;      // évènements MIDI (net -> control)
+static QueueHandle_t     g_cmdQueue = nullptr;   // commandes web (async -> control)
+static WebServer         g_web;
+static bool              g_webActive = false;
+static volatile uint32_t g_droppedMidi = 0;
+
+// Exécute une commande web sur le Core 1, seul propriétaire du bus I2C.
+static void execCommand(const WebCommand& cmd) {
+  const Config& c = g_sys->cfg;
+  switch (cmd.type) {
+    case WebCommand::ServoUs: {
+      int us = cmd.value;
+      if (us < c.valve.servoUs.min) us = c.valve.servoUs.min;
+      if (us > c.valve.servoUs.max) us = c.valve.servoUs.max;   // clamp (anti-casse)
+      if (cmd.channel < 16) g_sys->servos->writeMicros(cmd.channel, us);
+      break;
+    }
+    case WebCommand::ServoDeg: {
+      int d = cmd.value; if (d < 0) d = 0; if (d > 180) d = 180;
+      if (cmd.channel < 16) g_sys->servos->writeAngle(cmd.channel, d);
+      break;
+    }
+    case WebCommand::PistonHome:   g_sys->air->startHoming(); break;
+    case WebCommand::PistonCenter: g_sys->air->startCentering(); break;
+    case WebCommand::PressureTare: if (g_sys->pA) g_sys->pA->tare(); if (g_sys->pB) g_sys->pB->tare(); break;
+    case WebCommand::SwapHarmonica:
+      if (cmd.harmonica) { applyHarmonica(*g_sys, *cmd.harmonica); delete cmd.harmonica; }
+      break;
+  }
+}
+
+// Construit l'instantané de télémétrie sur le Core 1 (lecture capteurs I2C OK ici).
+static void publishSnapshot() {
+  StatusSnapshot s;
+  s.air = g_sys->air->status();
+  s.voices = g_sys->engine.activeVoiceCount();
+  s.mixedCapable = g_sys->engine.mixedCapable();
+  s.pitchBend = g_sys->engine.pitchBend();
+  s.modulation = g_sys->engine.modulationDepth();
+  s.setpointKpa = g_sys->air->currentSetpointKpa();
+  s.transports = g_sys->router.transportCount();
+  s.mock = g_sys->mock;
+  std::strncpy(s.harmonica, g_sys->map.name(), sizeof(s.harmonica) - 1);
+  s.droppedMidi = g_droppedMidi;
+  WebServer::publishSnapshot(s);
+}
 
 static void controlTask(void*) {
+  uint32_t lastSnap = 0;
   for (;;) {
     MidiEvent e;
     while (g_queue && xQueueReceive(g_queue, &e, 0) == pdTRUE) g_sys->engine.handleMidi(e);
+    WebCommand cmd;
+    while (g_cmdQueue && xQueueReceive(g_cmdQueue, &cmd, 0) == pdTRUE) execCommand(cmd);
     uint32_t now = millis();
     g_sys->air->update(now);
     g_sys->valve->update(now);
     if (g_sys->slide) g_sys->slide->update(now);
     g_sys->engine.update(now);
+    float hz = g_sys->cfg.system.telemetryHz;
+    uint32_t period = (hz > 0.0f) ? (uint32_t)(1000.0f / hz) : 100;
+    if (now - lastSnap >= period) { lastSnap = now; publishSnapshot(); }
     vTaskDelay(1);                       // ~1 kHz (upgrade FastAccelStepper pour + rapide)
   }
 }
@@ -63,22 +113,30 @@ void setup() {
   Serial.println("\n[harmonica-midi] boot");
 
   g_store.begin();
-  g_sys = buildSystem(g_store.config());
   const Config& c = g_store.config();
 
-  g_queue = xQueueCreate(64, sizeof(MidiEvent));
-  g_sys->router.setSink([](const MidiEvent& e) { if (g_queue) xQueueSend(g_queue, &e, 0); });
+  // Bus I2C unique, initialisé ici (Core 1) avec les pins/fréquence de la config.
+  Wire.begin(c.board.sda, c.board.scl);
+  Wire.setClock(c.board.i2cFreq);
+
+  g_sys = buildSystem(c);
+
+  g_queue    = xQueueCreate(64, sizeof(MidiEvent));
+  g_cmdQueue = xQueueCreate(8, sizeof(WebCommand));
+  g_sys->router.setSink([](const MidiEvent& e) {
+    if (!g_queue || xQueueSend(g_queue, &e, 0) != pdTRUE) g_droppedMidi++;   // drop compté (télémétrie)
+  });
   g_sys->router.begin();
 
   // Réseau/web : sur WiFi (station gérée par le transport RTP) ou en SoftAP de
   // configuration quand on est en mockMode (BLE ou aucun sans-fil actifs).
   if (c.midi.activeWireless == Wireless::Wifi) {
-    g_web.begin(g_sys, &g_store); g_webActive = true;
+    g_web.begin(g_sys, &g_store, g_cmdQueue); g_webActive = true;
   } else if (c.system.mockMode) {
     WiFi.mode(WIFI_AP);
     WiFi.softAP("Harmonica-Setup", c.midi.wifi.apPassword);
     Serial.print("[web] SoftAP http://"); Serial.println(WiFi.softAPIP());
-    g_web.begin(g_sys, &g_store); g_webActive = true;
+    g_web.begin(g_sys, &g_store, g_cmdQueue); g_webActive = true;
   }
 
   g_sys->air->startHoming();             // home puis auto-centrage

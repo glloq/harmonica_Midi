@@ -126,6 +126,11 @@ struct EngineCfg {
   float       vibratoDepth = 0.25f;    // profondeur max à CC1 = 127
 };
 
+// ---- Serveur web ------------------------------------------------------------
+// password vide => aucune authentification (dev/mock) ; non vide => Basic Auth
+// exigée sur toutes les routes /api/*.
+struct WebCfg { char user[24] = "admin"; char password[64] = ""; };
+
 // ---- Système ----------------------------------------------------------------
 struct SystemCfg { bool mockMode = false; float telemetryHz = 10.0f; };
 
@@ -139,6 +144,7 @@ struct Config {
   SlideCfg     slide;
   HarmonicaCfg harmonica;
   EngineCfg    engine;
+  WebCfg       web;
   SystemCfg    system;
 };
 
