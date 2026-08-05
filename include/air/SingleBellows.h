@@ -26,7 +26,7 @@ public:
     motor_.enable(true);
     sensor_.begin();
     pi_.configure(cfg_.pressureKp, cfg_.pressureKi, 0.0f, 1.0f, 1.0f);
-    lastMs_ = 0;
+    haveLast_ = false; lastMs_ = 0;
     motor_.moveToMm(cfg_.centerMm);
     homed_ = true;                 // pas d'endstop : origine logicielle
     return true;
@@ -55,8 +55,8 @@ public:
   bool supportsSimultaneousDirections() const override { return false; }
 
   void update(uint32_t nowMs) override {
-    float dt = (lastMs_ == 0) ? 0.02f : (nowMs - lastMs_) / 1000.0f;
-    lastMs_ = nowMs;
+    float dt = haveLast_ ? (nowMs - lastMs_) / 1000.0f : 0.02f;
+    haveLast_ = true; lastMs_ = nowMs;
     if (dt <= 0.0f) dt = 0.001f;
     if (dt > 0.2f) dt = 0.2f;
 
@@ -91,6 +91,7 @@ private:
   Direction active_ = Direction::Closed;
   float     intensity_ = 0.0f;
   PIController pi_;
+  bool      haveLast_ = false;
   uint32_t  lastMs_ = 0;
   float     setpoint_ = 0.0f;
 public:

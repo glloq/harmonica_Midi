@@ -21,9 +21,16 @@ struct PIController {
   void reset() { integral = 0.0f; }
 
   float update(float error, float dt) {
-    integral += error * dt;
-    if (integral > iMax) integral = iMax;
-    else if (integral < -iMax) integral = -iMax;   // anti-windup
+    if (dt < 0.0f) dt = 0.0f;                        // garde : pas d'intégration sur dt invalide
+    // Anti-windup conditionnel : on n'intègre PAS si la sortie brute est déjà
+    // saturée et que l'erreur pousse encore dans le sens de la saturation.
+    const float rawOut = kp * error + ki * (integral + error * dt);
+    const bool saturating = (rawOut > outMax && error > 0.0f) || (rawOut < outMin && error < 0.0f);
+    if (!saturating) {
+      integral += error * dt;
+      if (integral > iMax) integral = iMax;
+      else if (integral < -iMax) integral = -iMax;
+    }
     float out = kp * error + ki * integral;
     if (out > outMax) out = outMax;
     else if (out < outMin) out = outMin;

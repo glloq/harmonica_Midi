@@ -11,20 +11,21 @@ ROOT="$(pwd)"
 CACHE="$ROOT/.cache"
 mkdir -p "$CACHE/inc" "$CACHE/unity"
 
+# Téléchargement ATOMIQUE (temp + mv) : un fichier tronqué ne pollue jamais le cache.
+fetch() {  # fetch <url> <dest> [url_fallback]
+  [ -s "$2" ] && return 0
+  echo "[tests] téléchargement $(basename "$2")"
+  curl -fsSL "$1" -o "$2.tmp" && mv "$2.tmp" "$2" && return 0
+  [ -n "${3:-}" ] && curl -fsSL "$3" -o "$2.tmp" && mv "$2.tmp" "$2"
+}
+
 AJSON_VER="7.2.1"
-if [ ! -f "$CACHE/inc/ArduinoJson.h" ]; then
-  echo "[tests] téléchargement ArduinoJson v$AJSON_VER"
-  curl -fsSL "https://github.com/bblanchon/ArduinoJson/releases/download/v${AJSON_VER}/ArduinoJson-v${AJSON_VER}.h" \
-    -o "$CACHE/inc/ArduinoJson.h"
-fi
+fetch "https://github.com/bblanchon/ArduinoJson/releases/download/v${AJSON_VER}/ArduinoJson-v${AJSON_VER}.h" "$CACHE/inc/ArduinoJson.h"
 
 UNITY_VER="v2.6.0"
 for f in unity.h unity_internals.h unity.c; do
-  if [ ! -f "$CACHE/unity/$f" ]; then
-    echo "[tests] téléchargement Unity $UNITY_VER/$f"
-    curl -fsSL "https://raw.githubusercontent.com/ThrowTheSwitch/Unity/${UNITY_VER}/src/$f" -o "$CACHE/unity/$f" \
-      || curl -fsSL "https://raw.githubusercontent.com/ThrowTheSwitch/Unity/master/src/$f" -o "$CACHE/unity/$f"
-  fi
+  fetch "https://raw.githubusercontent.com/ThrowTheSwitch/Unity/${UNITY_VER}/src/$f" "$CACHE/unity/$f" \
+        "https://raw.githubusercontent.com/ThrowTheSwitch/Unity/master/src/$f"
 done
 
 SRCS=$(find src -name '*.cpp' | sort)

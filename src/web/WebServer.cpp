@@ -1,6 +1,9 @@
 // ============================================================================
 //  WebServer.cpp — serveur web asynchrone (ESP32 uniquement).
 //  Voir WebServer.h pour le modèle sécurité/concurrence.
+//   - mutations -> file de commandes Core 1 ; télémétrie <- instantané Core 1.
+//   - corps POST accumulés PAR REQUÊTE (req->_tempObject), plafonnés.
+//   - télémétrie par polling (/api/status) : pas de push WS cross-tâche.
 // ============================================================================
 #include "web/WebServer.h"
 
@@ -8,33 +11,43 @@
 #include <Arduino.h>
 #include <LittleFS.h>
 #include <ESPAsyncWebServer.h>
+#define ARDUINOJSON_ENABLE_STD_STRING 1
 #include <ArduinoJson.h>
 #include <freertos/FreeRTOS.h>
 #include <freertos/queue.h>
+#include <string>
 
 namespace harm {
 
 static AsyncWebServer g_server(80);
-static AsyncWebSocket g_ws("/ws");
 static System*        g_sys   = nullptr;
 static ConfigStore*   g_store = nullptr;
 static QueueHandle_t  g_cmdQueue = nullptr;
 static bool           g_reboot = false;
-static std::string    g_cfgBuf, g_calBuf, g_harmBuf;
 static const size_t   kMaxBody = 8192;   // plafond dur des corps POST
 
 static portMUX_TYPE   g_snapMux = portMUX_INITIALIZER_UNLOCKED;
 static StatusSnapshot g_snap;
 
 // ---- Auth (Basic) — désactivée si web.password vide ------------------------
-static bool authed(AsyncWebServerRequest* req) {
-  if (!g_sys || g_sys->cfg.web.password[0] == '\0') return true;
-  return req->authenticate(g_sys->cfg.web.user, g_sys->cfg.web.password);
-}
 static bool requireAuth(AsyncWebServerRequest* req) {
-  if (authed(req)) return true;
+  if (!g_sys || g_sys->cfg.web.password[0] == '\0') return true;
+  if (req->authenticate(g_sys->cfg.web.user, g_sys->cfg.web.password)) return true;
   req->requestAuthentication();
   return false;
+}
+
+// ---- Corps POST accumulé par requête (pas de buffer statique partagé) ------
+static void bodyAccum(AsyncWebServerRequest* req, uint8_t* data, size_t len, size_t index, size_t total) {
+  if (index == 0) req->_tempObject = (total <= kMaxBody) ? new std::string() : nullptr;
+  auto* buf = static_cast<std::string*>(req->_tempObject);
+  if (buf && buf->size() + len <= kMaxBody) buf->append((const char*)data, len);
+}
+static std::string takeBody(AsyncWebServerRequest* req) {
+  auto* buf = static_cast<std::string*>(req->_tempObject);
+  std::string out = buf ? *buf : std::string();
+  delete buf; req->_tempObject = nullptr;
+  return out;
 }
 
 // ---- File de commandes vers le Core 1 --------------------------------------
@@ -81,7 +94,7 @@ static String redactedConfig() {
 }
 
 // ---- Calibration -> commande Core 1 ----------------------------------------
-static bool queueCalibrate(const char* json) {
+static bool queueCalibrate(const std::string& json) {
   JsonDocument d;
   if (deserializeJson(d, json)) return false;
   const char* target = d["target"] | "";
@@ -99,12 +112,6 @@ static bool queueCalibrate(const char* json) {
   return enqueue(cmd);
 }
 
-// ---- Accumulation de corps bornée ------------------------------------------
-static void appendBody(std::string& buf, uint8_t* data, size_t len, size_t index) {
-  if (index == 0) buf.clear();
-  if (buf.size() + len <= kMaxBody) buf.append((const char*)data, len);
-}
-
 // ---- Routes -----------------------------------------------------------------
 void WebServer::begin(System* sys, ConfigStore* store, void* cmdQueue) {
   g_sys = sys; g_store = store; g_cmdQueue = (QueueHandle_t)cmdQueue; g_reboot = false;
@@ -115,15 +122,14 @@ void WebServer::begin(System* sys, ConfigStore* store, void* cmdQueue) {
   });
 
   g_server.on("/api/config", HTTP_POST,
-    [](AsyncWebServerRequest* req) {                          // après corps complet
-      if (!requireAuth(req)) { g_cfgBuf.clear(); return; }
-      bool ok = !g_cfgBuf.empty() && g_store->save(g_cfgBuf.c_str());
+    [](AsyncWebServerRequest* req) {
+      if (!requireAuth(req)) { takeBody(req); return; }
+      std::string body = takeBody(req);
+      bool ok = !body.empty() && g_store->save(body.c_str());
       req->send(ok ? 200 : 400, "application/json",
                 ok ? "{\"ok\":true,\"reboot\":true}" : "{\"ok\":false,\"error\":\"invalid or empty\"}");
-      g_cfgBuf.clear();
     },
-    nullptr,
-    [](AsyncWebServerRequest*, uint8_t* data, size_t len, size_t index, size_t) { appendBody(g_cfgBuf, data, len, index); });
+    nullptr, bodyAccum);
 
   g_server.on("/api/status", HTTP_GET, [](AsyncWebServerRequest* req) {
     if (!requireAuth(req)) return;
@@ -132,28 +138,26 @@ void WebServer::begin(System* sys, ConfigStore* store, void* cmdQueue) {
 
   g_server.on("/api/calibrate", HTTP_POST,
     [](AsyncWebServerRequest* req) {
-      if (!requireAuth(req)) { g_calBuf.clear(); return; }
-      bool ok = !g_calBuf.empty() && queueCalibrate(g_calBuf.c_str());
+      if (!requireAuth(req)) { takeBody(req); return; }
+      std::string body = takeBody(req);
+      bool ok = !body.empty() && queueCalibrate(body);
       req->send(ok ? 200 : 400, "application/json", ok ? "{\"ok\":true}" : "{\"ok\":false}");
-      g_calBuf.clear();
     },
-    nullptr,
-    [](AsyncWebServerRequest*, uint8_t* data, size_t len, size_t index, size_t) { appendBody(g_calBuf, data, len, index); });
+    nullptr, bodyAccum);
 
   g_server.on("/api/harmonica", HTTP_POST,
     [](AsyncWebServerRequest* req) {
-      if (!requireAuth(req)) { g_harmBuf.clear(); return; }
+      if (!requireAuth(req)) { takeBody(req); return; }
+      std::string body = takeBody(req);
       HarmonicaCfg* h = new HarmonicaCfg();
-      bool ok = !g_harmBuf.empty() && ConfigStore::deserializeHarmonica(g_harmBuf.c_str(), *h) && h->noteCount > 0;
+      bool ok = !body.empty() && ConfigStore::deserializeHarmonica(body.c_str(), *h) && h->noteCount > 0;
       if (ok && enqueue({WebCommand::SwapHarmonica, 0, 0, h})) {
-        g_store->saveHarmonica(g_harmBuf.c_str());             // persistance (LittleFS)
+        g_store->saveHarmonica(body.c_str());               // persistance (LittleFS)
       } else { delete h; ok = false; }
       req->send(ok ? 200 : 400, "application/json",
                 ok ? "{\"ok\":true}" : "{\"ok\":false,\"error\":\"invalid or empty harmonica\"}");
-      g_harmBuf.clear();
     },
-    nullptr,
-    [](AsyncWebServerRequest*, uint8_t* data, size_t len, size_t index, size_t) { appendBody(g_harmBuf, data, len, index); });
+    nullptr, bodyAccum);
 
   g_server.on("/api/harmonicas", HTTP_GET, [](AsyncWebServerRequest* req) {
     if (!requireAuth(req)) return;
@@ -164,7 +168,7 @@ void WebServer::begin(System* sys, ConfigStore* store, void* cmdQueue) {
         String n = f.name();
         const char* c = n.c_str();
         const char* base = strrchr(c, '/');
-        arr.add(base ? base + 1 : c);                          // basename stable (quel que soit le core)
+        arr.add(base ? base + 1 : c);                          // basename stable
       }
     }
     String out; serializeJson(d, out);
@@ -182,26 +186,14 @@ void WebServer::begin(System* sys, ConfigStore* store, void* cmdQueue) {
   g_server.on("/config.json", HTTP_GET, forbid);
   g_server.on("/config.tmp", HTTP_GET, forbid);
 
-  g_ws.onEvent([](AsyncWebSocket*, AsyncWebSocketClient* c, AwsEventType type, void*, uint8_t*, size_t) {
-    if (type == WS_EVT_CONNECT) c->text(buildStatus());        // snapshot (pas d'I2C)
-  });
-  g_server.addHandler(&g_ws);
-
   g_server.serveStatic("/", LittleFS, "/").setDefaultFile("index.html");
   g_server.onNotFound([](AsyncWebServerRequest* req) { req->send(404, "text/plain", "not found"); });
   g_server.begin();
 }
 
-void WebServer::loop(uint32_t nowMs) {
-  static uint32_t last = 0;
-  float hz = g_sys ? g_sys->cfg.system.telemetryHz : 10.0f;
-  uint32_t period = (hz > 0.0f) ? (uint32_t)(1000.0f / hz) : 100;
-  if (nowMs - last >= period) {
-    last = nowMs;
-    g_ws.cleanupClients();
-    if (g_ws.count() > 0) g_ws.textAll(buildStatus());
-  }
-}
+// Télémétrie par polling côté UI (/api/status) : rien à pousser ici, on évite
+// toute mutation d'AsyncWebSocket depuis une tâche étrangère.
+void WebServer::loop(uint32_t) {}
 
 bool WebServer::rebootRequested() const { return g_reboot; }
 

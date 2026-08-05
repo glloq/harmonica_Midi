@@ -38,7 +38,7 @@ public:
     pR1_.begin(); pR2_.begin();
     endstops_.begin();
     pi_.configure(cfg_.pressureKp, cfg_.pressureKi, 0.0f, 1.0f, 1.0f);
-    lastMs_ = 0;
+    haveLast_ = false; lastMs_ = 0;
     blowRail_ = Rail::A;           // au départ R1 = souffle (arbitraire, corrigé au 1er reversal)
     setReservoirValve(Rail::A, false);
     setReservoirValve(Rail::B, false);
@@ -115,7 +115,9 @@ public:
     s.pressureDraw  = railKpa(blowRail_ == Rail::A ? Rail::B : Rail::A);
     s.pistonMm      = piston_.positionMm();
     s.homed         = homed_;
-    s.ready         = homed_ && state_ == State::Running;
+    // "prêt" = homé, en régulation, et pression du rail souffle dans la tolérance.
+    s.ready         = homed_ && state_ == State::Running &&
+                      std::fabs(railKpaSigned(blowRail_) - setpoint_) <= cfg_.pressureToleranceKpa;
     s.assignmentGen = assignmentGen_;
     return s;
   }
@@ -125,7 +127,6 @@ private:
 
   // Sens de déplacement (mm) qui met le rail souffle courant en surpression.
   int feedDir() const { return (blowRail_ == Rail::A) ? -1 : +1; }
-  float feedEndMm() const { return (feedDir() < 0) ? 0.0f : cfg_.travelMm; }
 
   float railKpa(Rail r) const {   // magnitude (télémétrie / currentPressure)
     if (r == Rail::A) return std::fabs(const_cast<IPressureSensor&>(pR1_).readKpa());
@@ -153,8 +154,8 @@ private:
   }
 
   void runningControl(uint32_t nowMs) {
-    float dt = (lastMs_ == 0) ? 0.02f : (nowMs - lastMs_) / 1000.0f;
-    lastMs_ = nowMs;
+    float dt = haveLast_ ? (nowMs - lastMs_) / 1000.0f : 0.02f;
+    haveLast_ = true; lastMs_ = nowMs;
     if (dt <= 0.0f) dt = 0.001f;
     if (dt > 0.2f) dt = 0.2f;
 
@@ -183,9 +184,17 @@ private:
     // audibles) ; la direction la plus forte fixe la pression.
     const float demand = (blowDemand_ > drawDemand_) ? blowDemand_ : drawDemand_;
     setpoint_ = demand * cfg_.pressureTargetKpa;
-    // Régulation PI sur le retour SIGNÉ du rail souffle (comprimé = +). Après une
-    // inversion le rail est en dépression -> erreur grande -> le piston recomprime.
-    const float out = pi_.update(setpoint_ - railKpaSigned(blowRail_), dt);
+    // Retour SIGNÉ (comprimé = +). En jeu souffle+aspiration simultané, on équilibre
+    // les deux rails (souffle +p, aspiration -p) autour de la consigne ; sinon on
+    // régule le rail souffle seul (sa compression crée la dépression sur l'autre).
+    float feedback;
+    if (blow && draw) {
+      Rail drawR = (blowRail_ == Rail::A) ? Rail::B : Rail::A;
+      feedback = 0.5f * (railKpaSigned(blowRail_) - railKpaSigned(drawR));
+    } else {
+      feedback = railKpaSigned(blowRail_);
+    }
+    const float out = pi_.update(setpoint_ - feedback, dt);
     float target = pos + feedDir() * out * cfg_.travelMm;
     if (target < 0.0f) target = 0.0f;
     else if (target > cfg_.travelMm) target = cfg_.travelMm;
@@ -206,6 +215,7 @@ private:
   uint16_t assignmentGen_ = 0;
   int8_t   valveStateA_ = -1, valveStateB_ = -1;   // -1 inconnu, 0 fermé, 1 ouvert
   PIController pi_;
+  bool     haveLast_ = false;
   uint32_t lastMs_ = 0;
   uint32_t homingDeadlineMs_ = 0;
   float    setpoint_ = 0.0f;
