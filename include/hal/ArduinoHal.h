@@ -58,7 +58,7 @@ public:
   float positionMm() const override { return stepper_.currentPosition() / stepsPerMm_; }
   bool  isRunning() const override { return stepper_.distanceToGo() != 0; }
   void  run() override { stepper_.run(); }
-  void  zero() override { stepper_.setCurrentPosition(0); }
+  void  setPositionMm(float mm) override { stepper_.setCurrentPosition((long)lroundf(mm * stepsPerMm_)); }
 
 private:
   // mutable : currentPosition()/distanceToGo() d'AccelStepper ne sont pas const.

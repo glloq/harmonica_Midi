@@ -28,13 +28,17 @@ public:
     : piston_(piston), pR1_(pR1), pR2_(pR2), endstops_(endstops), servos_(servos), cfg_(cfg) {}
 
   bool begin() override {
+    // Garde-fou : une marge d'inversion >= travel/2 provoquerait une tempête
+    // d'inversions à chaque tick (bandes de fin de course qui se chevauchent).
+    if (cfg_.reversalMarginMm > cfg_.travelMm * 0.45f) cfg_.reversalMarginMm = cfg_.travelMm * 0.45f;
+    if (cfg_.reversalMarginMm < 1.0f) cfg_.reversalMarginMm = 1.0f;
     piston_.begin();
     piston_.setKinematics(cfg_.maxSpeedMmS, cfg_.accelMmS2, cfg_.stepsPerMm);
     piston_.enable(true);
     pR1_.begin(); pR2_.begin();
     endstops_.begin();
     pi_.configure(cfg_.pressureKp, cfg_.pressureKi, 0.0f, 1.0f, 1.0f);
-    lastMs_ = 0;
+    haveLast_ = false; lastMs_ = 0;
     blowRail_ = Rail::A;           // au départ R1 = souffle (arbitraire, corrigé au 1er reversal)
     setReservoirValve(Rail::A, false);
     setReservoirValve(Rail::B, false);
@@ -42,7 +46,12 @@ public:
     return true;
   }
 
-  void startHoming() override { state_ = State::Homing; piston_.moveToMm(-2.0f * cfg_.travelMm); }
+  void startHoming() override {
+    state_ = State::Homing;
+    homingDeadlineMs_ = 0;   // fixé au premier tick de Homing
+    // Va vers l'endstop configuré (R1 -> vers 0, R2 -> vers travel).
+    piston_.moveToMm(cfg_.homeOnR1 ? -2.0f * cfg_.travelMm : 3.0f * cfg_.travelMm);
+  }
   bool isHomed() const override { return homed_; }
 
   void startCentering() override {
@@ -77,10 +86,18 @@ public:
   void update(uint32_t nowMs) override {
     switch (state_) {
       case State::Boot: break;
-      case State::Homing:
+      case State::Homing: {
         piston_.run();
-        if (endstops_.triggeredR1()) { piston_.zero(); homed_ = true; startCentering(); }
+        if (homingDeadlineMs_ == 0)
+          homingDeadlineMs_ = nowMs + (uint32_t)((2.0f * cfg_.travelMm / cfg_.maxSpeedMmS) * 1000.0f) + 5000u;
+        const bool hit = cfg_.homeOnR1 ? endstops_.triggeredR1() : endstops_.triggeredR2();
+        if (hit || nowMs >= homingDeadlineMs_) {       // endstop atteint OU timeout de sécurité
+          piston_.setPositionMm(cfg_.homeOnR1 ? 0.0f : cfg_.travelMm);
+          homed_ = true;
+          startCentering();
+        }
         break;
+      }
       case State::Centering:
         piston_.run();
         if (!piston_.isRunning()) state_ = State::Running;
@@ -98,7 +115,9 @@ public:
     s.pressureDraw  = railKpa(blowRail_ == Rail::A ? Rail::B : Rail::A);
     s.pistonMm      = piston_.positionMm();
     s.homed         = homed_;
-    s.ready         = homed_ && state_ == State::Running;
+    // "prêt" = homé, en régulation, et pression du rail souffle dans la tolérance.
+    s.ready         = homed_ && state_ == State::Running &&
+                      std::fabs(railKpaSigned(blowRail_) - setpoint_) <= cfg_.pressureToleranceKpa;
     s.assignmentGen = assignmentGen_;
     return s;
   }
@@ -108,12 +127,15 @@ private:
 
   // Sens de déplacement (mm) qui met le rail souffle courant en surpression.
   int feedDir() const { return (blowRail_ == Rail::A) ? -1 : +1; }
-  float feedEndMm() const { return (feedDir() < 0) ? 0.0f : cfg_.travelMm; }
 
-  float railKpa(Rail r) const {
-    // magnitude : surpression pour le rail souffle, |dépression| pour l'aspiration
+  float railKpa(Rail r) const {   // magnitude (télémétrie / currentPressure)
     if (r == Rail::A) return std::fabs(const_cast<IPressureSensor&>(pR1_).readKpa());
     if (r == Rail::B) return std::fabs(const_cast<IPressureSensor&>(pR2_).readKpa());
+    return 0.0f;
+  }
+  float railKpaSigned(Rail r) const {   // signé (comprimé = +, détendu = -) pour la régulation
+    if (r == Rail::A) return const_cast<IPressureSensor&>(pR1_).readKpa();
+    if (r == Rail::B) return const_cast<IPressureSensor&>(pR2_).readKpa();
     return 0.0f;
   }
 
@@ -132,8 +154,8 @@ private:
   }
 
   void runningControl(uint32_t nowMs) {
-    float dt = (lastMs_ == 0) ? 0.02f : (nowMs - lastMs_) / 1000.0f;
-    lastMs_ = nowMs;
+    float dt = haveLast_ ? (nowMs - lastMs_) / 1000.0f : 0.02f;
+    haveLast_ = true; lastMs_ = nowMs;
     if (dt <= 0.0f) dt = 0.001f;
     if (dt > 0.2f) dt = 0.2f;
 
@@ -156,11 +178,23 @@ private:
                                                : (pos >= cfg_.travelMm * 0.6f);
     if (atFeedEnd || (idle && wayPastCenter)) { pi_.reset(); reverse(); return; }
 
-    if (idle) { pi_.reset(); piston_.moveToMm(pos); return; }
+    if (idle) { pi_.reset(); setpoint_ = 0.0f; piston_.moveToMm(pos); return; }
 
-    // Régulation PI : on avance vers l'extrémité "feed" d'une fraction de course
-    // (0..1) proportionnelle à l'erreur de pression du rail souffle.
-    const float out = pi_.update(cfg_.pressureTargetKpa - railKpa(blowRail_), dt);
+    // Consigne = intensité demandée × cible (=> vélocité / CC breath/expression/vibrato
+    // audibles) ; la direction la plus forte fixe la pression.
+    const float demand = (blowDemand_ > drawDemand_) ? blowDemand_ : drawDemand_;
+    setpoint_ = demand * cfg_.pressureTargetKpa;
+    // Retour SIGNÉ (comprimé = +). En jeu souffle+aspiration simultané, on équilibre
+    // les deux rails (souffle +p, aspiration -p) autour de la consigne ; sinon on
+    // régule le rail souffle seul (sa compression crée la dépression sur l'autre).
+    float feedback;
+    if (blow && draw) {
+      Rail drawR = (blowRail_ == Rail::A) ? Rail::B : Rail::A;
+      feedback = 0.5f * (railKpaSigned(blowRail_) - railKpaSigned(drawR));
+    } else {
+      feedback = railKpaSigned(blowRail_);
+    }
+    const float out = pi_.update(setpoint_ - feedback, dt);
     float target = pos + feedDir() * out * cfg_.travelMm;
     if (target < 0.0f) target = 0.0f;
     else if (target > cfg_.travelMm) target = cfg_.travelMm;
@@ -181,7 +215,12 @@ private:
   uint16_t assignmentGen_ = 0;
   int8_t   valveStateA_ = -1, valveStateB_ = -1;   // -1 inconnu, 0 fermé, 1 ouvert
   PIController pi_;
+  bool     haveLast_ = false;
   uint32_t lastMs_ = 0;
+  uint32_t homingDeadlineMs_ = 0;
+  float    setpoint_ = 0.0f;
+public:
+  float currentSetpointKpa() const override { return setpoint_; }   // consigne PI (test/télémétrie)
 };
 
 }  // namespace harm

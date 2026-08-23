@@ -63,6 +63,11 @@ async function applyPreset(name) {
   if (!confirm('Charger « ' + name + ' » ? Les notes en cours seront coupées.')) return;
   try {
     const preset = await (await fetch(path)).text();
+    // Avertissement : un harmonica chromatique a besoin de slide.enabled + reboot.
+    try {
+      const pj = JSON.parse(preset);
+      if (pj.hasSlide && !confirm('Ce preset est chromatique (slide). Les altérations ne sonneront que si "slide.enabled" est activé dans la config puis redémarré. Continuer quand même ?')) return;
+    } catch (e) { /* preset non-JSON : laissé au serveur */ }
     const r = await fetch('/api/harmonica', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: preset });
     const j = await r.json();
     if (j.ok) { msg('harmonica « ' + name + ' » appliquée', true); loadConfig(); }
@@ -85,31 +90,23 @@ function renderStatus(s) {
   $('s-heap').textContent = s.freeHeap ? (s.freeHeap / 1024).toFixed(0) + ' Ko' : '—';
   $('s-mock').textContent = yn(s.mock);
   $('s-gen').textContent = s.assignmentGen ?? 0;
+  $('s-setpoint').textContent = Number(s.setpointKpa ?? 0).toFixed(2);
+  $('s-dropped').textContent = s.droppedMidi ?? 0;
 }
 function setConn(on) {
   const b = $('conn'); b.textContent = on ? 'en ligne' : 'hors ligne';
   b.className = 'badge ' + (on ? 'on' : 'off');
 }
 
-let ws = null, pollTimer = null;
-function startWs() {
-  try {
-    ws = new WebSocket('ws://' + location.host + '/ws');
-    ws.onopen = () => { setConn(true); if (pollTimer) { clearInterval(pollTimer); pollTimer = null; } };
-    ws.onmessage = (ev) => { try { renderStatus(JSON.parse(ev.data)); } catch (e) {} };
-    ws.onclose = () => { setConn(false); ws = null; startPolling(); setTimeout(startWs, 4000); };
-    ws.onerror = () => { ws && ws.close(); };
-  } catch (e) { startPolling(); }
-}
-function startPolling() {
-  if (pollTimer) return;
-  pollTimer = setInterval(async () => {
-    try { const r = await fetch('/api/status'); renderStatus(await r.json()); setConn(true); }
-    catch (e) { setConn(false); }
-  }, 1000);
+// Télémétrie par polling (~2 Hz). Pas de WebSocket : évite toute course de tâche
+// côté serveur (le push WS depuis une tâche étrangère est dangereux).
+async function pollStatus() {
+  try { const r = await fetch('/api/status'); renderStatus(await r.json()); setConn(true); }
+  catch (e) { setConn(false); }
 }
 
 // ---- Init ------------------------------------------------------------------
 loadConfig();
 loadPresets();
-startWs();
+pollStatus();
+setInterval(pollStatus, 500);

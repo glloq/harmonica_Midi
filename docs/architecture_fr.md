@@ -145,6 +145,13 @@ Serveur : `ESPAsyncWebServer` (asynchrone → ne bloque jamais la boucle de cont
 par trou et les angles des valves réservoir), homing/centrage piston, tare
 pression (à faire à l'ambiant, indispensable pour un capteur absolu).
 
+**Sécurité** : `GET /api/config` **masque les secrets** (mots de passe WiFi/AP/web)
+et les fichiers `/config.json` `/config.tmp` ne sont **pas servis** en clair ;
+`web.password` (config) active une **authentification Basic** sur toutes les routes
+`/api/*` ; les corps POST sont **plafonnés** (8 Ko) et la calibration servo est
+**bornée** (µs/angle/canal) côté Core 1. Vide par défaut (dev) → penser à définir
+`web.password` sur un réseau partagé.
+
 La page web tourne sur le WiFi quand `activeWireless=="wifi"` ; quand BLE est
 choisi, un **SoftAP « mode config »** (activé en `mockMode` ici) expose la page
 sans WiFi+BLE simultanés.
@@ -156,8 +163,13 @@ sans WiFi+BLE simultanés.
   `engine->update` (réaction au swap). Déterministe, jamais bloqué par la radio.
 - **Core 0 — `netTask`** : `router.loop()` (parsing série/BLE/RTP), serveur web,
   télémétrie.
-- **Pont** : une `QueueHandle_t` — le sink du routeur enfile (Core 0), le moteur
-  défile (Core 1). La gigue réseau ne touche jamais l'actionnement.
+- **Ponts inter-cœurs** (tout l'accès I2C et à l'état moteur reste sur le Core 1) :
+  - **File MIDI** `QueueHandle_t` : le sink du routeur enfile (Core 0), le moteur
+    défile (Core 1) ; un échec d'enfilage est **compté** (`droppedMidi` en télémétrie).
+  - **File de commandes** web→Core 1 : calibration, homing/centrage, tare, échange
+    d'harmonica sont **exécutés sur le Core 1**, jamais depuis la tâche async.
+  - **Instantané de télémétrie** publié par le Core 1 sous `portMUX` : `/api/status`
+    et le WebSocket le lisent **sans toucher l'I2C** ni l'état moteur.
 
 > Voie d'upgrade : **FastAccelStepper** (stepping matériel RMT/MCPWM) pour des
 > cadences de pas élevées sans jitter, au lieu d'`AccelStepper::run()` cadencé par
@@ -253,9 +265,21 @@ anti-windup) dans les deux sources d'air ; **vibrato de pression** piloté par
 CC1 (live) ; **pitch-bend** MIDI parsé (0xE0, 14 bits) + dimension `bend` dans
 le mapping (modélisation) ; échange d'harmonica **à chaud** (`POST /api/harmonica`).
 
-**À poursuivre** : réglage fin des gains PI sur banc, optimisation « rester
-centré », **actionnement** réel des bends (le pitch-bend est capté mais pas
-encore traduit en modulation d'air), presets complets par famille.
+**Correctifs d'audit appliqués** (critiques + élevés) : retour de pression
+**signé** vers le PI (plus de piston coincé après inversion) ; **consigne PI
+proportionnelle à l'intensité** demandée (vélocité + CC breath/expression/vibrato
+audibles) ; `homeOnR1` respecté + **timeout de homing** ; garde `reversalMargin
+< travel/2` ; notes vers un trou hors `holeCount` ignorées ; vibrato sans
+écrêtage ; **file de commandes + snapshot** (fin des accès I2C/état hors Core 1) ;
+sécurité web (secrets masqués, `/config.json` bloqué, Basic Auth, corps plafonné,
+servo borné, drop MIDI compté) ; `Wire.begin` applique les pins/fréquence ;
+`AppleMIDI@^3.2.0` + plateforme épinglée. Tests : 18/18.
+
+**À poursuivre** : réglage fin des gains PI sur banc ; optimisation « rester
+centré » ; **régulation du rail aspiration** en jeu souffle+aspiration simultané ;
+**actionnement** réel des bends (pitch-bend capté, pas encore traduit en air) ;
+buffers de corps POST par-requête (au lieu de statiques partagés) ; presets
+complets par famille.
 
 ## 12. Risques & recommandations matérielles
 

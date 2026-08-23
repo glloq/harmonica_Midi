@@ -4,6 +4,7 @@
 // ============================================================================
 #include "web/ConfigStore.h"
 #include "web/DefaultConfig.h"
+#define ARDUINOJSON_ENABLE_STD_STRING 1   // garantit serializeJson(doc, std::string) quel que soit l'ordre d'include
 #include <ArduinoJson.h>
 #include <cstring>
 #include <cstdlib>
@@ -13,6 +14,7 @@ namespace harm {
 // ---- Helpers locaux ---------------------------------------------------------
 static void copyStr(char* d, size_t n, const char* s) {
   if (!s) { d[0] = '\0'; return; }
+  if (d == s) return;              // même buffer (clé JSON absente) : évite un strncpy recouvrant (UB)
   std::strncpy(d, s, n - 1); d[n - 1] = '\0';
 }
 static uint8_t toU8Hex(JsonVariantConst v, uint8_t def) {
@@ -188,6 +190,8 @@ bool ConfigStore::deserialize(const char* json, Config& c) {
   c.engine.velocityToIntensity = r["engine"]["velocityToIntensity"] | c.engine.velocityToIntensity;
   c.engine.vibratoRateHz = r["engine"]["vibratoRateHz"] | c.engine.vibratoRateHz;
   c.engine.vibratoDepth = r["engine"]["vibratoDepth"] | c.engine.vibratoDepth;
+  copyStr(c.web.user, sizeof(c.web.user), r["web"]["user"] | c.web.user);
+  copyStr(c.web.password, sizeof(c.web.password), r["web"]["password"] | c.web.password);
   c.system.mockMode = r["system"]["mockMode"] | c.system.mockMode;
   c.system.telemetryHz = r["system"]["telemetryHz"] | c.system.telemetryHz;
   return true;

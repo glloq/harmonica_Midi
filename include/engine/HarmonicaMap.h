@@ -34,6 +34,7 @@ public:
     for (uint16_t i = 0; i < cfg.noteCount && i < MAX_NOTE_ENTRIES; ++i) {
       const NoteEntry& e = cfg.notes[i];
       if (e.note >= MIDI_NOTES) continue;
+      if (e.hole >= holeCount_ || e.hole >= MAX_HOLES) continue;  // trou non routable -> ignoré
       NoteMapping& m = table_[e.note];
       if (m.valid) continue;                 // première entrée prioritaire
       m.valid = true; m.hole = e.hole; m.direction = e.direction;

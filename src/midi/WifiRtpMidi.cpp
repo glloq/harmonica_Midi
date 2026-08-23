@@ -30,8 +30,11 @@ WifiRtpMidi::WifiRtpMidi(const WifiCfg& cfg) : cfg_(cfg) {}
 
 bool WifiRtpMidi::begin() {
   g_rtpSelf = this;
-  // Connexion WiFi station (non bloquante : AppleMIDI fonctionnera dès l'IP obtenue).
-  if (WiFi.status() != WL_CONNECTED) {
+  // Respecte wifi.mode ("ap" -> point d'accès, sinon station non bloquante).
+  if (!strcmp(cfg_.mode, "ap")) {
+    WiFi.mode(WIFI_AP);
+    WiFi.softAP(cfg_.ssid[0] ? cfg_.ssid : "Harmonica-RTP", cfg_.password);
+  } else if (WiFi.status() != WL_CONNECTED) {
     WiFi.mode(WIFI_STA);
     WiFi.begin(cfg_.ssid, cfg_.password);
   }
