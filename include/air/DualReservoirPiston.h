@@ -122,6 +122,13 @@ public:
     return s;
   }
 
+  AirCaps caps() const override {
+    AirCaps c;
+    c.simultaneous = true; c.hasPiston = true; c.needsHoming = true;
+    c.railsSwap = true; c.pressureSensors = 2;
+    return c;
+  }
+
 private:
   enum class State : uint8_t { Boot, Homing, Centering, Running };
 

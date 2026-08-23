@@ -27,7 +27,12 @@ public:
   virtual bool  isHomed() const = 0;
   virtual void  startCentering() = 0;                // ouvre les 2 valves, pas de son
   virtual AirStatus status() const = 0;
+  virtual AirCaps   caps() const = 0;                       // ce que le montage sait faire
   virtual float currentSetpointKpa() const { return 0.0f; }   // consigne PI (télémétrie)
+
+  // Banc d'essai : force le régime d'une pompe (duty < 0 => retour à la régulation).
+  // Renvoie false si le montage n'a pas de pompe pilotable.
+  virtual bool  setManualDuty(Direction /*dir*/, float /*duty01*/) { return false; }
 };
 
 }  // namespace harm

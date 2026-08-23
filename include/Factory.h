@@ -14,15 +14,19 @@
 #include "engine/HarmonicaMap.h"
 #include "engine/NoteEngine.h"
 #include "midi/MidiRouter.h"
+#include "hal/Hal.h"
 
 namespace harm {
 
 struct System {
   IServoBus*       servos   = nullptr;
-  IStepper*        stepper  = nullptr;
-  IPressureSensor* pA       = nullptr;   // R1 (vérin) ou chambre unique (soufflet)
-  IPressureSensor* pB       = nullptr;   // R2 (vérin) ; nullptr pour soufflet
-  IEndstops*       endstops = nullptr;   // vérin ; nullptr pour soufflet
+  IDigitalOutBus*  solenoids = nullptr;  // électro-vannes / électroaimants ; nullptr si aucun
+  IStepper*        stepper  = nullptr;   // vérin / soufflet ; nullptr pour les pompes
+  IPwmOut*         pumpBlow = nullptr;   // pompe souffle (ou pompe unique) ; nullptr sinon
+  IPwmOut*         pumpDraw = nullptr;   // pompe aspiration ; nullptr sinon
+  IPressureSensor* pA       = nullptr;   // R1 / chambre / plenum souffle
+  IPressureSensor* pB       = nullptr;   // R2 / plenum aspiration ; nullptr si un seul capteur
+  IEndstops*       endstops = nullptr;   // vérin ; nullptr sinon
   IAirSource*      air      = nullptr;
   IValveDriver*    valve    = nullptr;
   ISlideActuator*  slide    = nullptr;   // nullptr si non chromatique

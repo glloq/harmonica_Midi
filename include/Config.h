@@ -5,6 +5,10 @@
 //  JSON vit uniquement dans ConfigStore (cible ESP32). La logique métier
 //  (HarmonicaMap, NoteEngine, air, valve) travaille sur ces structs => elle
 //  reste testable sur PC sans JSON.
+//
+//  Tout ce qui décrit un MONTAGE (nombre de trous, type de pompe, type de
+//  valve, brochage, mapping de notes) est ici : rien n'est codé en dur dans la
+//  logique. Ajouter une variante d'harmonica = éditer du JSON.
 // ============================================================================
 #pragma once
 #include "Types.h"
@@ -44,9 +48,55 @@ struct MidiCfg {
   WifiCfg       wifi;
 };
 
-// ---- Source d'air -----------------------------------------------------------
-enum class AirImpl : uint8_t { DualReservoirPiston = 0, SingleBellows = 1 };
+// ---- Capteurs de pression ---------------------------------------------------
 enum class PressureType : uint8_t { Bmp280 = 0, Mpx2010 = 1 };
+
+// Description d'UN capteur (I2C ou analogique) — réutilisée par les sources
+// d'air récentes ; les deux premières gardent leurs champs historiques.
+struct PressureSensorCfg {
+  PressureType type = PressureType::Bmp280;
+  uint8_t      addr = 0x76;        // I2C (bmp280)
+  int          adcPin = 34;        // analogique (mpx2010)
+  float        kpaPerCount = 0.0025f;
+};
+
+// ---- Entraînement d'une pompe / turbine ------------------------------------
+//  ledc    : MOSFET piloté en PWM matériel ESP32 (moteur DC, pompe diaphragme) ;
+//  esc     : variateur brushless commandé en impulsions servo (turbine) ;
+//  pca9685 : canal PWM du PCA9685 (pompe lente / driver externe).
+enum class PumpDrive : uint8_t { Ledc = 0, Esc = 1, Pca9685 = 2 };
+
+struct PumpCfg {
+  PumpDrive drive = PumpDrive::Ledc;
+  int       pin = 18;                     // ledc
+  uint8_t   channel = 14;                 // esc / pca9685 : canal du bus servo
+  float     freqHz = 20000.0f;            // ledc (au-dessus de l'audible)
+  uint16_t  escMinUs = 1000, escMaxUs = 2000;
+  float     minDuty = 0.15f, maxDuty = 1.0f;   // plage utile (démarrage / limite)
+  bool      invert = false;               // driver à logique inversée
+};
+
+// ---- Bus de sorties tout-ou-rien (électro-vannes / électroaimants) ---------
+enum class DigitalBusImpl : uint8_t { Pca9685 = 0, Gpio = 1 };
+
+struct DigitalBusCfg {
+  DigitalBusImpl impl = DigitalBusImpl::Pca9685;
+  uint8_t  pcaAddr = 0x41;                // 2e PCA9685 dédié aux vannes
+  float    pcaFreqHz = 1000.0f;           // fréquence de hachage du maintien
+  uint8_t  gpioCount = 0;                 // impl gpio : nombre de canaux mappés
+  int      gpioPins[MAX_OUTPUTS] = {0};   // impl gpio : canal -> broche
+  bool     activeLow = false;
+  float    holdDuty = 1.0f;               // maintien après le pic (1 = pas de peak&hold)
+  uint16_t peakMs = 80;                   // durée du pic plein courant
+};
+
+// ---- Source d'air -----------------------------------------------------------
+enum class AirImpl : uint8_t {
+  DualReservoirPiston = 0,   // 2 réservoirs + piston (design du README)
+  SingleBellows       = 1,   // soufflet simple motorisé
+  PumpPair            = 2,   // 2 pompes continues opposées (souffle + aspiration)
+  SinglePumpReversible= 3    // 1 pompe + aiguillage souffle/aspiration
+};
 
 struct DualReservoirCfg {
   float stepsPerMm = 80.0f, travelMm = 300.0f, centerMm = 150.0f;
@@ -72,32 +122,87 @@ struct BellowsCfg {
   int   adcPin = 34;
 };
 
+// Deux pompes continues opposées : l'une pressurise le plenum "souffle",
+// l'autre met le plenum "aspiration" en dépression. Aucun mouvement mécanique
+// à gérer, souffle et aspiration disponibles EN MÊME TEMPS et sans limite de
+// durée (pas d'inversion de piston), au prix du bruit et de la consommation.
+struct PumpPairCfg {
+  PumpCfg           blowPump, drawPump;
+  PressureSensorCfg blowSensor, drawSensor;
+  bool  sharedSensor = false;             // un seul capteur (côté souffle)
+  float pressureTargetKpa = 0.30f, pressureToleranceKpa = 0.05f;
+  float pressureKp = 2.0f, pressureKi = 1.0f;
+  float idleDuty = 0.0f;                  // régime de veille (plenum amorcé)
+  uint16_t spinUpMs = 300;                // temps de montée en régime
+  uint8_t bleedChannel = 255;             // servo de purge du plenum (255 = aucun)
+  int   bleedOpenAngle = 90, bleedClosedAngle = 0;
+};
+
+// Une seule pompe + un aiguillage (servo 3 voies ou électro-vanne) qui choisit
+// si la pompe pousse (souffle) ou tire (aspiration) : montage le plus économe,
+// mais une seule direction à la fois et un temps de bascule à respecter.
+enum class DiverterImpl : uint8_t { Servo = 0, Solenoid = 1 };
+
+struct SinglePumpCfg {
+  PumpCfg           pump;
+  PressureSensorCfg sensor;
+  DiverterImpl diverter = DiverterImpl::Servo;
+  uint8_t  diverterChannel = 15;          // canal servo OU canal du bus vannes
+  int   blowAngle = 30, drawAngle = 150, neutralAngle = 90;
+  bool  solenoidBlowState = true;         // impl solénoïde : état = souffle
+  uint16_t switchMs = 150;                // bascule avant de laisser sonner
+  float pressureTargetKpa = 0.30f, pressureToleranceKpa = 0.05f;
+  float pressureKp = 2.0f, pressureKi = 1.0f;
+  float idleDuty = 0.0f;
+};
+
 struct AirCfg {
   AirImpl impl = AirImpl::DualReservoirPiston;
   DualReservoirCfg dual;
   BellowsCfg       bellows;
+  PumpPairCfg      pumps;
+  SinglePumpCfg    singlePump;
 };
 
 // ---- Distribution (valves) --------------------------------------------------
-enum class ValveImpl : uint8_t { Valve2in1 = 0, Valve1in1 = 1 };
+enum class ValveImpl : uint8_t {
+  Valve2in1    = 0,   // servo, 2 entrées -> 1 sortie (choix du rail par trou)
+  Valve1in1    = 1,   // servo, porte on/off (direction imposée globalement)
+  Solenoid2in1 = 2,   // 2 électro-vannes par trou (rail A / rail B)
+  Solenoid1in1 = 3    // 1 électro-vanne par trou (direction globale)
+};
 
 struct Pca9685Cfg { uint8_t addr = 0x40; float freqHz = 50.0f; float oscHz = 27000000.0f; };
 struct ServoUsCfg { uint16_t min = 500, max = 2500; };
 
-struct Hole2in1 { uint8_t hole = 0, channel = 0; int railAangle = 30, railBangle = 150, closedAngle = 90; };
-struct Hole1in1 { uint8_t hole = 0, channel = 0; int openAngle = 90, closedAngle = 0; };
+struct Hole2in1  { uint8_t hole = 0, channel = 0; int railAangle = 30, railBangle = 150, closedAngle = 90; };
+struct Hole1in1  { uint8_t hole = 0, channel = 0; int openAngle = 90, closedAngle = 0; };
+struct HoleSol2  { uint8_t hole = 0, railAchannel = 0, railBchannel = 0; };
+struct HoleSol1  { uint8_t hole = 0, channel = 0; };
 
 struct ValveCfg {
   ValveImpl  impl = ValveImpl::Valve2in1;
   Pca9685Cfg pca;
   ServoUsCfg servoUs;
+  uint16_t   settleMs = 0;         // débattement mécanique estimé (info + moteur de jeu)
   uint8_t    holeCount = 0;
   Hole2in1   holes2[MAX_HOLES];
   Hole1in1   holes1[MAX_HOLES];
+  HoleSol2   holesS2[MAX_HOLES];
+  HoleSol1   holesS1[MAX_HOLES];
+  DigitalBusCfg solenoids;         // bus utilisé par les impls Solenoid*
 };
 
 // ---- Slide (harmonica chromatique) -----------------------------------------
-struct SlideCfg { bool enabled = false; uint8_t channel = 14; int engagedAngle = 120; int restAngle = 60; };
+enum class SlideImpl : uint8_t { Servo = 0, Solenoid = 1 };
+
+struct SlideCfg {
+  bool      enabled = false;
+  SlideImpl impl = SlideImpl::Servo;
+  uint8_t   channel = 14;          // servo : canal PCA9685 ; solénoïde : canal du bus vannes
+  int       engagedAngle = 120, restAngle = 60;
+  uint16_t  settleMs = 40;         // temps de course du slide (info UI / futur délai)
+};
 
 // ---- Harmonica (mapping générique) -----------------------------------------
 struct NoteEntry {
@@ -124,6 +229,13 @@ struct EngineCfg {
   bool        velocityToIntensity = true;
   float       vibratoRateHz = 5.0f;    // vibrato de pression (CC1 modulation)
   float       vibratoDepth = 0.25f;    // profondeur max à CC1 = 127
+  bool        ccVolumeEnabled = true;  // CC7 en facteur global
+  bool        bendEnabled = true;      // actionnement des bends (surpression)
+  float       bendPressureGain = 0.15f;      // supplément d'intensité par demi-ton
+  float       pitchBendRangeSemitones = 2.0f;
+  float       minIntensity = 0.05f;    // plancher pour qu'une note faible sonne
+  uint16_t    holeSettleMs = 0;        // délai valve->air (course du servo)
+  uint32_t    noteMaxHoldMs = 0;       // coupe-circuit note bloquée (0 = jamais)
 };
 
 // ---- Serveur web ------------------------------------------------------------
@@ -132,11 +244,15 @@ struct EngineCfg {
 struct WebCfg { char user[24] = "admin"; char password[64] = ""; };
 
 // ---- Système ----------------------------------------------------------------
-struct SystemCfg { bool mockMode = false; float telemetryHz = 10.0f; };
+struct SystemCfg {
+  bool  mockMode = false;
+  float telemetryHz = 10.0f;
+  bool  autoHomeOnBoot = true;
+};
 
 // ---- Document complet -------------------------------------------------------
 struct Config {
-  int          version = 1;
+  int          version = 2;
   BoardCfg     board;
   MidiCfg      midi;
   AirCfg       air;

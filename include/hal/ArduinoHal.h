@@ -105,6 +105,111 @@ private:
   float scale_, offset_ = 0.0f;
 };
 
+// ---- Bus de sorties tout-ou-rien : PCA9685 dédié aux électro-vannes ---------
+//  Le même composant que les servos, mais à haute fréquence et en duty pur :
+//  0 % = fermé, 100 % = pic d'ouverture, duty intermédiaire = maintien.
+class Pca9685DigitalBus : public IDigitalOutBus {
+public:
+  Pca9685DigitalBus(uint8_t addr, float freqHz, bool activeLow)
+    : drv_(addr), freq_(freqHz), activeLow_(activeLow) {}
+
+  bool begin() override {
+    if (!drv_.begin()) return false;
+    drv_.setPWMFreq(freq_);
+    allOff();
+    return true;
+  }
+  void write(uint8_t ch, bool on) override { writeLevel(ch, on ? 1.0f : 0.0f); }
+  void writeLevel(uint8_t ch, float duty01) override {
+    if (ch >= 16) return;
+    if (duty01 < 0.0f) duty01 = 0.0f;
+    if (duty01 > 1.0f) duty01 = 1.0f;
+    const float d = activeLow_ ? 1.0f - duty01 : duty01;
+    if (d >= 1.0f)      drv_.setPWM(ch, 4096, 0);        // full ON
+    else if (d <= 0.0f) drv_.setPWM(ch, 0, 4096);        // full OFF
+    else                drv_.setPWM(ch, 0, (uint16_t)(d * 4095.0f));
+  }
+  void    allOff() override { for (uint8_t c = 0; c < 16; ++c) write(c, false); }
+  uint8_t channelCount() const override { return 16; }
+  bool    supportsLevel() const override { return true; }
+
+private:
+  Adafruit_PWMServoDriver drv_;
+  float freq_;
+  bool  activeLow_;
+};
+
+// ---- Bus de sorties tout-ou-rien : GPIO directes (MOSFET / ULN2803) --------
+class GpioDigitalBus : public IDigitalOutBus {
+public:
+  GpioDigitalBus(const int* pins, uint8_t count, bool activeLow)
+    : count_(count > MAX_OUTPUTS ? MAX_OUTPUTS : count), activeLow_(activeLow) {
+    for (uint8_t i = 0; i < count_; ++i) pins_[i] = pins[i];
+  }
+  bool begin() override {
+    for (uint8_t i = 0; i < count_; ++i) { pinMode(pins_[i], OUTPUT); write(i, false); }
+    return true;
+  }
+  void write(uint8_t ch, bool on) override {
+    if (ch >= count_) return;
+    digitalWrite(pins_[ch], (on ^ activeLow_) ? HIGH : LOW);
+  }
+  void    allOff() override { for (uint8_t i = 0; i < count_; ++i) write(i, false); }
+  uint8_t channelCount() const override { return count_; }
+
+private:
+  int     pins_[MAX_OUTPUTS] = {0};
+  uint8_t count_;
+  bool    activeLow_;
+};
+
+// ---- Sortie PWM matérielle (LEDC) : pompe DC sur MOSFET ---------------------
+class LedcPwmOut : public IPwmOut {
+public:
+  LedcPwmOut(int pin, float freqHz, uint8_t channel, uint8_t resolutionBits = 10)
+    : pin_(pin), freq_(freqHz), ch_(channel), bits_(resolutionBits) {}
+  bool begin() override {
+    ledcSetup(ch_, freq_, bits_);
+    ledcAttachPin(pin_, ch_);
+    setDuty(0.0f);
+    return true;
+  }
+  void  setDuty(float d) override {
+    if (d < 0.0f) d = 0.0f;
+    if (d > 1.0f) d = 1.0f;
+    duty_ = d;
+    ledcWrite(ch_, (uint32_t)(d * ((1u << bits_) - 1)));
+  }
+  float duty() const override { return duty_; }
+
+private:
+  int     pin_;
+  float   freq_;
+  uint8_t ch_, bits_;
+  float   duty_ = 0.0f;
+};
+
+// ---- Sortie PWM via impulsions servo : ESC brushless / driver PCA9685 ------
+class ServoBusPwmOut : public IPwmOut {
+public:
+  ServoBusPwmOut(IServoBus& bus, uint8_t channel, uint16_t minUs, uint16_t maxUs)
+    : bus_(bus), ch_(channel), minUs_(minUs), maxUs_(maxUs) {}
+  bool begin() override { setDuty(0.0f); return true; }
+  void setDuty(float d) override {
+    if (d < 0.0f) d = 0.0f;
+    if (d > 1.0f) d = 1.0f;
+    duty_ = d;
+    bus_.writeMicros(ch_, minUs_ + (int)((maxUs_ - minUs_) * d));
+  }
+  float duty() const override { return duty_; }
+
+private:
+  IServoBus& bus_;
+  uint8_t    ch_;
+  uint16_t   minUs_, maxUs_;
+  float      duty_ = 0.0f;
+};
+
 // ---- Fins de course GPIO ----------------------------------------------------
 class GpioEndstops : public IEndstops {
 public:

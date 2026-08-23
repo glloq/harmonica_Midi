@@ -1,0 +1,27 @@
+{
+  "name": "Diatonic A Richter",
+  "holeCount": 10,
+  "hasSlide": false,
+  "notes": [
+    {"note": 69, "hole": 0, "dir": "blow"},
+    {"note": 71, "hole": 0, "dir": "draw"},
+    {"note": 73, "hole": 1, "dir": "blow"},
+    {"note": 76, "hole": 1, "dir": "draw"},
+    {"note": 76, "hole": 2, "dir": "blow"},
+    {"note": 80, "hole": 2, "dir": "draw"},
+    {"note": 81, "hole": 3, "dir": "blow"},
+    {"note": 83, "hole": 3, "dir": "draw"},
+    {"note": 85, "hole": 4, "dir": "blow"},
+    {"note": 86, "hole": 4, "dir": "draw"},
+    {"note": 88, "hole": 5, "dir": "blow"},
+    {"note": 90, "hole": 5, "dir": "draw"},
+    {"note": 93, "hole": 6, "dir": "blow"},
+    {"note": 92, "hole": 6, "dir": "draw"},
+    {"note": 97, "hole": 7, "dir": "blow"},
+    {"note": 95, "hole": 7, "dir": "draw"},
+    {"note": 100, "hole": 8, "dir": "blow"},
+    {"note": 98, "hole": 8, "dir": "draw"},
+    {"note": 105, "hole": 9, "dir": "blow"},
+    {"note": 102, "hole": 9, "dir": "draw"}
+  ]
+}

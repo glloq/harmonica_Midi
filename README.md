@@ -4,12 +4,25 @@
 > c'est juste une idée !
 
 > [!TIP]
-> Une **base firmware modulaire pour ESP32** (configurable depuis une page web) a
-> été ajoutée. Elle permet de gérer différents types de valves (2-en-1 / 1-en-1),
-> de systèmes d'air (vérin double / soufflet) et d'harmonicas, avec du MIDI en
-> WiFi / BLE / filaire. Voir **[`docs/architecture_fr.md`](docs/architecture_fr.md)**
-> ainsi que `include/` et `src/`.
-> Build : `pio run -e esp32dev` · Tests logiques sur PC : `pio test -e native`.
+> Un **firmware modulaire pour ESP32**, entièrement configurable depuis une page
+> web, a été ajouté. Il couvre :
+>
+> | | Options disponibles |
+> |---|---|
+> | **Systèmes d'air** | vérin double (2 réservoirs + piston) · soufflet simple · **2 pompes continues opposées** · **1 pompe + aiguillage** |
+> | **Distribution** | servo 2 entrées→1 sortie · servo ouvert/fermé · **2 électro-vannes par trou** · **1 électro-vanne par trou** |
+> | **Harmonicas** | diatonique Richter (toutes tonalités, **bends** inclus) · chromatique 12/16 trous avec slide · trémolo · octave · n'importe quel mapping sur 24 trous |
+> | **Slide** | servo · électroaimant |
+> | **MIDI** | DIN/UART filaire · BLE-MIDI · WiFi RTP-MIDI (AppleMIDI) · CC1 vibrato, CC2/CC7/CC11 intensité, pitch-bend |
+> | **Pompes** | PWM MOSFET (LEDC) · ESC brushless · canal PCA9685 |
+>
+> Rien n'est codé en dur : le montage **et** l'instrument se décrivent dans
+> `config.json`, éditable depuis la page web (9 onglets, éditeur de mapping,
+> générateur de tonalités, presets, banc d'essai trou par trou).
+> Voir **[`docs/architecture_fr.md`](docs/architecture_fr.md)**.
+>
+> Build : `pio run -e esp32dev` · Envoi de la page + config : `pio run -e esp32dev -t uploadfs`
+> · Contrôles complets sur PC (tests, UI, syntaxe ESP32) : `./tools/run_native_tests.sh`.
 
 ------------------------------------------------------------------------------------------------
 
@@ -34,6 +47,13 @@ en utilisant les pression d'air d'air d'un etre humain, on pêut estimer l'aspir
 
 ## Systeme de pompes
 
+> Le firmware gère **quatre** systèmes d'air interchangeables (choix dans la page
+> web, section « Air ») : le vérin double décrit ci-dessous, un soufflet simple,
+> **deux pompes continues opposées** (souffle et aspiration disponibles en même
+> temps, sans butée ni homing) et **une pompe unique + aiguillage** (le montage le
+> plus économique, une seule direction à la fois). Le compromis de chacun est
+> détaillé dans [`docs/architecture_fr.md`](docs/architecture_fr.md#3-le-vocabulaire-clé--direction-vs-rail).
+
 Le plus simple serait d'utiliser un tube de diametre 20cm et d'une hauteur de 35cm environ afin d'avoir autour de 10 litres d'airs dans les reservoirs.
 il faut choisir le moteur et la tige fileté pour avoir un debit maximum de 10 a 15 litres par minutes =>  une tige fileté normale devrais sufire ? 
 pour eviter les fuites nous pouvons utiliser des joints toriques pour sceller les assemblages.
@@ -47,6 +67,12 @@ idealement il ne faut pas utiliser les fin de courses, l'idée est d'initialiser
 le code viendra alterner le sens de deplacement du piston en fonction de la distance restante des reservoir R1 et R2, l'objectif est de rester au centre le plus possible (l'harmonica jouant des melodies alternant le soufflage et l'aspiration, on evite donc trop d'utilisation des valves de distribution par la meme occasion )
 
 ## Distribution
+
+> Les deux approches sont implémentées : **servos** (valve imprimée 2-en-1 ou
+> porte 1-en-1) et **électro-vannes** (2 par trou pour choisir le rail, ou 1 par
+> trou). Les électro-vannes commutent en 5–15 ms contre 50–150 ms pour un servo —
+> c'est le montage à choisir pour des traits rapides — et le firmware gère leur
+> maintien en « peak & hold » pour éviter la surchauffe.
 
 il est possible d'utiliser des electrovanne du marché mais cela va enormement augmenter le coup total  
 l'idée est d'imprimer un systeme de valve avec 2 entrées et une sortie pour chacun des trous de l'harmonica afin de selectionner l'aspiration ou le soufflage en fonction de la note midi demandé.
@@ -69,6 +95,18 @@ il faut respecter des contraintes de taille pour chaque passage d'air :
 - 12 servomoteurs (1 pour chaque trou d'harmonica et 2 pour les valves d'ouverture des reservoirs)
 - alimentation 12v et 5v adapté
 - arduino ou autre microcontroleur
+
+Variantes prises en charge par le firmware (voir la page web, section « Air » et
+« Distribution ») :
+
+- **électro-vannes au lieu des servos** : un 2ᵉ PCA9685 (`0x41`) en tout-ou-rien ou
+  des GPIO, dans les deux cas derrière un driver de puissance (ULN2803 / MOSFET +
+  diode de roue libre) ;
+- **pompes au lieu du pas-à-pas** : une ou deux pompes/turbines pilotées en PWM
+  (MOSFET sur une sortie LEDC) ou par ESC brushless — plus de moteur pas-à-pas,
+  plus de fins de course, plus de perte de pas ;
+- **capteur de pression** : BMP280 (I2C) ou MPX2010 (analogique) ; un seul capteur
+  suffit en mode « symétrique » sur le montage à deux pompes.
 
 ## Schéma electrique
 

@@ -88,6 +88,43 @@ public:
   void  rampTo(float t, float step) { target = t; rampStep = step; }
 };
 
+// ---- Bus de sorties tout-ou-rien simulé -------------------------------------
+class MockDigitalBus : public IDigitalOutBus {
+public:
+  bool     level = true;                 // simule un bus capable de moduler (PCA9685)
+  bool     on[MAX_OUTPUTS] = {false};
+  float    duty[MAX_OUTPUTS] = {0.0f};
+  uint32_t writes = 0;
+
+  bool begin() override { MockLog::line("[sol] begin"); return true; }
+  void write(uint8_t ch, bool state) override {
+    if (ch >= MAX_OUTPUTS) return;
+    on[ch] = state; duty[ch] = state ? 1.0f : 0.0f; ++writes;
+    MockLog::line("[sol] ch=%u %s", ch, state ? "ON" : "OFF");
+  }
+  void writeLevel(uint8_t ch, float d) override {
+    if (ch >= MAX_OUTPUTS) return;
+    on[ch] = d > 0.0f; duty[ch] = d; ++writes;
+    MockLog::line("[sol] ch=%u duty=%d%%", ch, (int)(d * 100));
+  }
+  void    allOff() override { for (uint8_t i = 0; i < MAX_OUTPUTS; ++i) write(i, false); }
+  uint8_t channelCount() const override { return MAX_OUTPUTS; }
+  bool    supportsLevel() const override { return level; }
+};
+
+// ---- Sortie PWM simulée (pompe) ---------------------------------------------
+class MockPwmOut : public IPwmOut {
+public:
+  float    value = 0.0f;
+  uint32_t writes = 0;
+  const char* tag = "pump";
+
+  explicit MockPwmOut(const char* name = "pump") : tag(name) {}
+  bool  begin() override { return true; }
+  void  setDuty(float d) override { value = d; ++writes; MockLog::line("[%s] duty=%d%%", tag, (int)(d * 100)); }
+  float duty() const override { return value; }
+};
+
 // ---- Fins de course simulées -----------------------------------------------
 //  Peuvent être pilotées à la main (setR1/R2) ou calculées depuis la position
 //  d'un MockStepper (déclenchées aux extrémités de la course).

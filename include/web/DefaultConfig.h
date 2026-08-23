@@ -1,17 +1,21 @@
 // ============================================================================
 //  DefaultConfig.h — configuration par défaut embarquée (fallback).
 //
-//  Contenu identique à data/config.json (uploadé sur LittleFS). Sert de secours
-//  si le fichier est absent ou illisible, et de réponse GET /api/config par
-//  défaut. Build de référence : diatonique C + vérin double + valve 2-en-1.
+//  ⚠ FICHIER GÉNÉRÉ — ne pas éditer à la main.
+//  Source : data/config.json · Régénération : python3 tools/gen_default_config.py
+//
+//  Sert de secours si /config.json est absent ou illisible sur LittleFS, et de
+//  réponse GET /api/config par défaut. Build de référence : diatonique C +
+//  vérin double + valve 2-en-1.
 // ============================================================================
 #pragma once
 
 namespace harm {
 
 inline const char* kDefaultConfigJson() {
-  return R"JSON({
-  "version": 1,
+  return R"JSON(
+{
+  "version": 2,
   "board": {
     "i2c": { "sda": 21, "scl": 22, "freqHz": 400000 },
     "stepper": { "step": 26, "dir": 27, "enable": 25, "invertEnable": true },
@@ -41,12 +45,34 @@ inline const char* kDefaultConfigJson() {
       "pressureTargetKpa": 0.30, "pressureToleranceKpa": 0.05, "flowLpm": 12,
       "pressureKp": 4.0, "pressureKi": 0.5,
       "pressureType": "bmp280", "addr": "0x76", "adcPin": 34
+    },
+    "pumpPair": {
+      "blowPump": { "drive": "ledc", "pin": 18, "channel": 14, "freqHz": 20000, "escMinUs": 1000, "escMaxUs": 2000, "minDuty": 0.15, "maxDuty": 1.0, "invert": false },
+      "drawPump": { "drive": "ledc", "pin": 19, "channel": 15, "freqHz": 20000, "escMinUs": 1000, "escMaxUs": 2000, "minDuty": 0.15, "maxDuty": 1.0, "invert": false },
+      "blowSensor": { "type": "bmp280", "addr": "0x76", "adcPin": 34, "kpaPerCount": 0.0025 },
+      "drawSensor": { "type": "bmp280", "addr": "0x77", "adcPin": 35, "kpaPerCount": 0.0025 },
+      "sharedSensor": false,
+      "pressureTargetKpa": 0.30, "pressureToleranceKpa": 0.05,
+      "pressureKp": 2.0, "pressureKi": 1.0,
+      "idleDuty": 0.0, "spinUpMs": 300,
+      "bleedChannel": 255, "bleedOpenAngle": 90, "bleedClosedAngle": 0
+    },
+    "singlePumpReversible": {
+      "pump": { "drive": "ledc", "pin": 18, "channel": 14, "freqHz": 20000, "escMinUs": 1000, "escMaxUs": 2000, "minDuty": 0.15, "maxDuty": 1.0, "invert": false },
+      "sensor": { "type": "bmp280", "addr": "0x76", "adcPin": 34, "kpaPerCount": 0.0025 },
+      "diverter": "servo", "diverterChannel": 15,
+      "blowAngle": 30, "drawAngle": 150, "neutralAngle": 90,
+      "solenoidBlowState": true, "switchMs": 150,
+      "pressureTargetKpa": 0.30, "pressureToleranceKpa": 0.05,
+      "pressureKp": 2.0, "pressureKi": 1.0, "idleDuty": 0.0
     }
   },
   "valve": {
     "impl": "valve2in1",
     "pca9685": { "addr": "0x40", "freqHz": 50, "oscHz": 27000000 },
     "servoUs": { "min": 500, "max": 2500 },
+    "settleMs": 60,
+    "solenoids": { "impl": "pca9685", "pcaAddr": "0x41", "pcaFreqHz": 1000, "activeLow": false, "holdDuty": 0.4, "peakMs": 80, "gpioPins": [] },
     "valve2in1": { "holes": [
       { "hole": 0, "channel": 0, "railAangle": 30, "railBangle": 150, "closedAngle": 90 },
       { "hole": 1, "channel": 1, "railAangle": 30, "railBangle": 150, "closedAngle": 90 },
@@ -62,9 +88,17 @@ inline const char* kDefaultConfigJson() {
     "valve1in1": { "holes": [
       { "hole": 0, "channel": 0, "openAngle": 90, "closedAngle": 0 },
       { "hole": 1, "channel": 1, "openAngle": 90, "closedAngle": 0 }
+    ] },
+    "solenoid2in1": { "holes": [
+      { "hole": 0, "railAchannel": 0, "railBchannel": 1 },
+      { "hole": 1, "railAchannel": 2, "railBchannel": 3 }
+    ] },
+    "solenoid1in1": { "holes": [
+      { "hole": 0, "channel": 0 },
+      { "hole": 1, "channel": 1 }
     ] }
   },
-  "slide": { "enabled": false, "channel": 14, "engagedAngle": 120, "restAngle": 60 },
+  "slide": { "enabled": false, "impl": "servo", "channel": 14, "engagedAngle": 120, "restAngle": 60, "settleMs": 40 },
   "harmonica": {
     "name": "Diatonic C Richter", "holeCount": 10, "hasSlide": false,
     "notes": [
@@ -80,10 +114,16 @@ inline const char* kDefaultConfigJson() {
       { "note": 96, "hole": 9, "dir": "blow" }, { "note": 93, "hole": 9, "dir": "draw" }
     ]
   },
-  "engine": { "maxPolyphony": 10, "arbitration": "reject", "velocityToIntensity": true, "vibratoRateHz": 5.0, "vibratoDepth": 0.25 },
+  "engine": {
+    "maxPolyphony": 10, "arbitration": "reject", "velocityToIntensity": true,
+    "vibratoRateHz": 5.0, "vibratoDepth": 0.25, "ccVolumeEnabled": true,
+    "bendEnabled": true, "bendPressureGain": 0.15, "pitchBendRangeSemitones": 2.0,
+    "minIntensity": 0.05, "holeSettleMs": 0, "noteMaxHoldMs": 0
+  },
   "web": { "user": "admin", "password": "" },
-  "system": { "mockMode": false, "telemetryHz": 10 }
-})JSON";
+  "system": { "mockMode": false, "telemetryHz": 10, "autoHomeOnBoot": true }
+}
+)JSON";
 }
 
 }  // namespace harm

@@ -1,0 +1,27 @@
+{
+  "name": "Octave C 10 (solo)",
+  "holeCount": 10,
+  "hasSlide": false,
+  "notes": [
+    {"note": 60, "hole": 0, "dir": "blow"},
+    {"note": 62, "hole": 0, "dir": "draw"},
+    {"note": 64, "hole": 1, "dir": "blow"},
+    {"note": 65, "hole": 1, "dir": "draw"},
+    {"note": 67, "hole": 2, "dir": "blow"},
+    {"note": 69, "hole": 2, "dir": "draw"},
+    {"note": 72, "hole": 3, "dir": "blow"},
+    {"note": 71, "hole": 3, "dir": "draw"},
+    {"note": 72, "hole": 4, "dir": "blow"},
+    {"note": 74, "hole": 4, "dir": "draw"},
+    {"note": 76, "hole": 5, "dir": "blow"},
+    {"note": 77, "hole": 5, "dir": "draw"},
+    {"note": 79, "hole": 6, "dir": "blow"},
+    {"note": 81, "hole": 6, "dir": "draw"},
+    {"note": 84, "hole": 7, "dir": "blow"},
+    {"note": 83, "hole": 7, "dir": "draw"},
+    {"note": 84, "hole": 8, "dir": "blow"},
+    {"note": 86, "hole": 8, "dir": "draw"},
+    {"note": 88, "hole": 9, "dir": "blow"},
+    {"note": 89, "hole": 9, "dir": "draw"}
+  ]
+}

@@ -3,293 +3,53 @@
   "holeCount": 12,
   "hasSlide": true,
   "notes": [
-    {
-      "note": 60,
-      "hole": 0,
-      "dir": "blow",
-      "slide": false
-    },
-    {
-      "note": 62,
-      "hole": 0,
-      "dir": "draw",
-      "slide": false
-    },
-    {
-      "note": 61,
-      "hole": 0,
-      "dir": "blow",
-      "slide": true
-    },
-    {
-      "note": 63,
-      "hole": 0,
-      "dir": "draw",
-      "slide": true
-    },
-    {
-      "note": 64,
-      "hole": 1,
-      "dir": "blow",
-      "slide": false
-    },
-    {
-      "note": 65,
-      "hole": 1,
-      "dir": "draw",
-      "slide": false
-    },
-    {
-      "note": 65,
-      "hole": 1,
-      "dir": "blow",
-      "slide": true
-    },
-    {
-      "note": 66,
-      "hole": 1,
-      "dir": "draw",
-      "slide": true
-    },
-    {
-      "note": 67,
-      "hole": 2,
-      "dir": "blow",
-      "slide": false
-    },
-    {
-      "note": 69,
-      "hole": 2,
-      "dir": "draw",
-      "slide": false
-    },
-    {
-      "note": 68,
-      "hole": 2,
-      "dir": "blow",
-      "slide": true
-    },
-    {
-      "note": 70,
-      "hole": 2,
-      "dir": "draw",
-      "slide": true
-    },
-    {
-      "note": 72,
-      "hole": 3,
-      "dir": "blow",
-      "slide": false
-    },
-    {
-      "note": 71,
-      "hole": 3,
-      "dir": "draw",
-      "slide": false
-    },
-    {
-      "note": 73,
-      "hole": 3,
-      "dir": "blow",
-      "slide": true
-    },
-    {
-      "note": 72,
-      "hole": 3,
-      "dir": "draw",
-      "slide": true
-    },
-    {
-      "note": 72,
-      "hole": 4,
-      "dir": "blow",
-      "slide": false
-    },
-    {
-      "note": 74,
-      "hole": 4,
-      "dir": "draw",
-      "slide": false
-    },
-    {
-      "note": 73,
-      "hole": 4,
-      "dir": "blow",
-      "slide": true
-    },
-    {
-      "note": 75,
-      "hole": 4,
-      "dir": "draw",
-      "slide": true
-    },
-    {
-      "note": 76,
-      "hole": 5,
-      "dir": "blow",
-      "slide": false
-    },
-    {
-      "note": 77,
-      "hole": 5,
-      "dir": "draw",
-      "slide": false
-    },
-    {
-      "note": 77,
-      "hole": 5,
-      "dir": "blow",
-      "slide": true
-    },
-    {
-      "note": 78,
-      "hole": 5,
-      "dir": "draw",
-      "slide": true
-    },
-    {
-      "note": 79,
-      "hole": 6,
-      "dir": "blow",
-      "slide": false
-    },
-    {
-      "note": 81,
-      "hole": 6,
-      "dir": "draw",
-      "slide": false
-    },
-    {
-      "note": 80,
-      "hole": 6,
-      "dir": "blow",
-      "slide": true
-    },
-    {
-      "note": 82,
-      "hole": 6,
-      "dir": "draw",
-      "slide": true
-    },
-    {
-      "note": 84,
-      "hole": 7,
-      "dir": "blow",
-      "slide": false
-    },
-    {
-      "note": 83,
-      "hole": 7,
-      "dir": "draw",
-      "slide": false
-    },
-    {
-      "note": 85,
-      "hole": 7,
-      "dir": "blow",
-      "slide": true
-    },
-    {
-      "note": 84,
-      "hole": 7,
-      "dir": "draw",
-      "slide": true
-    },
-    {
-      "note": 84,
-      "hole": 8,
-      "dir": "blow",
-      "slide": false
-    },
-    {
-      "note": 86,
-      "hole": 8,
-      "dir": "draw",
-      "slide": false
-    },
-    {
-      "note": 85,
-      "hole": 8,
-      "dir": "blow",
-      "slide": true
-    },
-    {
-      "note": 87,
-      "hole": 8,
-      "dir": "draw",
-      "slide": true
-    },
-    {
-      "note": 88,
-      "hole": 9,
-      "dir": "blow",
-      "slide": false
-    },
-    {
-      "note": 89,
-      "hole": 9,
-      "dir": "draw",
-      "slide": false
-    },
-    {
-      "note": 89,
-      "hole": 9,
-      "dir": "blow",
-      "slide": true
-    },
-    {
-      "note": 90,
-      "hole": 9,
-      "dir": "draw",
-      "slide": true
-    },
-    {
-      "note": 91,
-      "hole": 10,
-      "dir": "blow",
-      "slide": false
-    },
-    {
-      "note": 93,
-      "hole": 10,
-      "dir": "draw",
-      "slide": false
-    },
-    {
-      "note": 92,
-      "hole": 10,
-      "dir": "blow",
-      "slide": true
-    },
-    {
-      "note": 94,
-      "hole": 10,
-      "dir": "draw",
-      "slide": true
-    },
-    {
-      "note": 96,
-      "hole": 11,
-      "dir": "blow",
-      "slide": false
-    },
-    {
-      "note": 95,
-      "hole": 11,
-      "dir": "draw",
-      "slide": false
-    },
-    {
-      "note": 97,
-      "hole": 11,
-      "dir": "blow",
-      "slide": true
-    },
-    {
-      "note": 96,
-      "hole": 11,
-      "dir": "draw",
-      "slide": true
-    }
+    {"note": 60, "hole": 0, "dir": "blow"},
+    {"note": 62, "hole": 0, "dir": "draw"},
+    {"note": 61, "hole": 0, "dir": "blow", "slide": true},
+    {"note": 63, "hole": 0, "dir": "draw", "slide": true},
+    {"note": 64, "hole": 1, "dir": "blow"},
+    {"note": 65, "hole": 1, "dir": "draw"},
+    {"note": 65, "hole": 1, "dir": "blow", "slide": true},
+    {"note": 66, "hole": 1, "dir": "draw", "slide": true},
+    {"note": 67, "hole": 2, "dir": "blow"},
+    {"note": 69, "hole": 2, "dir": "draw"},
+    {"note": 68, "hole": 2, "dir": "blow", "slide": true},
+    {"note": 70, "hole": 2, "dir": "draw", "slide": true},
+    {"note": 72, "hole": 3, "dir": "blow"},
+    {"note": 71, "hole": 3, "dir": "draw"},
+    {"note": 73, "hole": 3, "dir": "blow", "slide": true},
+    {"note": 72, "hole": 3, "dir": "draw", "slide": true},
+    {"note": 72, "hole": 4, "dir": "blow"},
+    {"note": 74, "hole": 4, "dir": "draw"},
+    {"note": 73, "hole": 4, "dir": "blow", "slide": true},
+    {"note": 75, "hole": 4, "dir": "draw", "slide": true},
+    {"note": 76, "hole": 5, "dir": "blow"},
+    {"note": 77, "hole": 5, "dir": "draw"},
+    {"note": 77, "hole": 5, "dir": "blow", "slide": true},
+    {"note": 78, "hole": 5, "dir": "draw", "slide": true},
+    {"note": 79, "hole": 6, "dir": "blow"},
+    {"note": 81, "hole": 6, "dir": "draw"},
+    {"note": 80, "hole": 6, "dir": "blow", "slide": true},
+    {"note": 82, "hole": 6, "dir": "draw", "slide": true},
+    {"note": 84, "hole": 7, "dir": "blow"},
+    {"note": 83, "hole": 7, "dir": "draw"},
+    {"note": 85, "hole": 7, "dir": "blow", "slide": true},
+    {"note": 84, "hole": 7, "dir": "draw", "slide": true},
+    {"note": 84, "hole": 8, "dir": "blow"},
+    {"note": 86, "hole": 8, "dir": "draw"},
+    {"note": 85, "hole": 8, "dir": "blow", "slide": true},
+    {"note": 87, "hole": 8, "dir": "draw", "slide": true},
+    {"note": 88, "hole": 9, "dir": "blow"},
+    {"note": 89, "hole": 9, "dir": "draw"},
+    {"note": 89, "hole": 9, "dir": "blow", "slide": true},
+    {"note": 90, "hole": 9, "dir": "draw", "slide": true},
+    {"note": 91, "hole": 10, "dir": "blow"},
+    {"note": 93, "hole": 10, "dir": "draw"},
+    {"note": 92, "hole": 10, "dir": "blow", "slide": true},
+    {"note": 94, "hole": 10, "dir": "draw", "slide": true},
+    {"note": 96, "hole": 11, "dir": "blow"},
+    {"note": 95, "hole": 11, "dir": "draw"},
+    {"note": 97, "hole": 11, "dir": "blow", "slide": true},
+    {"note": 96, "hole": 11, "dir": "draw", "slide": true}
   ]
 }

@@ -58,6 +58,35 @@ static void execCommand(const WebCommand& cmd) {
     case WebCommand::SwapHarmonica:
       if (cmd.harmonica) { applyHarmonica(*g_sys, *cmd.harmonica); delete cmd.harmonica; }
       break;
+    // -- banc d'essai : actionneurs unitaires --
+    case WebCommand::SolenoidSet:
+      if (g_sys->solenoids && cmd.channel < MAX_OUTPUTS) g_sys->solenoids->write(cmd.channel, cmd.value != 0);
+      break;
+    case WebCommand::HoleState: {
+      const Direction d = (cmd.value == 1) ? Direction::Blow
+                        : (cmd.value == 2) ? Direction::Draw : Direction::Closed;
+      if (cmd.channel < MAX_HOLES) g_sys->valve->setHoleState(cmd.channel, d);
+      break;
+    }
+    case WebCommand::PumpDuty: {
+      const Direction d = (cmd.channel == 2) ? Direction::Draw : Direction::Blow;
+      int pct = cmd.value;
+      if (pct > 100) pct = 100;
+      g_sys->air->setManualDuty(d, (pct < 0) ? -1.0f : pct / 100.0f);   // < 0 => retour à la régulation
+      break;
+    }
+    case WebCommand::SlideSet:   if (g_sys->slide) g_sys->slide->setEngaged(cmd.value != 0); break;
+    case WebCommand::TestNoteOn:
+      g_sys->engine.handleMidi({MidiEvent::NoteOn, 0, cmd.channel, (uint8_t)cmd.value});
+      break;
+    case WebCommand::TestNoteOff:
+      g_sys->engine.handleMidi({MidiEvent::NoteOff, 0, cmd.channel, 0});
+      break;
+    case WebCommand::AllOff:
+      g_sys->engine.panic();
+      g_sys->valve->allOff();
+      g_sys->air->setManualDuty(Direction::Closed, -1.0f);
+      break;
   }
 }
 
@@ -65,6 +94,7 @@ static void execCommand(const WebCommand& cmd) {
 static void publishSnapshot() {
   StatusSnapshot s;
   s.air = g_sys->air->status();
+  s.caps = g_sys->air->caps();
   s.voices = g_sys->engine.activeVoiceCount();
   s.mixedCapable = g_sys->engine.mixedCapable();
   s.pitchBend = g_sys->engine.pitchBend();
@@ -74,6 +104,13 @@ static void publishSnapshot() {
   s.mock = g_sys->mock;
   std::strncpy(s.harmonica, g_sys->map.name(), sizeof(s.harmonica) - 1);
   s.droppedMidi = g_droppedMidi;
+  s.holeBlowMask = g_sys->engine.holeMask(Direction::Blow);
+  s.holeDrawMask = g_sys->engine.holeMask(Direction::Draw);
+  s.holeCount = g_sys->valve->holeCount();
+  s.airImpl = (uint8_t)g_sys->cfg.air.impl;
+  s.valveImpl = (uint8_t)g_sys->cfg.valve.impl;
+  s.slidePresent = (g_sys->slide != nullptr);
+  s.slideEngaged = g_sys->slide ? g_sys->slide->engaged() : false;
   WebServer::publishSnapshot(s);
 }
 
@@ -139,14 +176,15 @@ void setup() {
     g_web.begin(g_sys, &g_store, g_cmdQueue); g_webActive = true;
   }
 
-  g_sys->air->startHoming();             // home puis auto-centrage
+  if (c.system.autoHomeOnBoot) g_sys->air->startHoming();   // home puis auto-centrage
 
   xTaskCreatePinnedToCore(controlTask, "control", 8192, nullptr, 2, nullptr, 1);
   xTaskCreatePinnedToCore(netTask,     "net",     8192, nullptr, 1, nullptr, 0);
-  Serial.printf("[harmonica-midi] pret : air=%s valve=%s mixte=%d mock=%d\n",
-                c.air.impl == AirImpl::DualReservoirPiston ? "verin" : "soufflet",
-                c.valve.impl == ValveImpl::Valve2in1 ? "2en1" : "1en1",
-                g_sys->engine.mixedCapable(), g_sys->mock);
+  static const char* kAirNames[]   = {"verin", "soufflet", "pompes", "pompe+aiguillage"};
+  static const char* kValveNames[] = {"servo2en1", "servo1en1", "solenoide2en1", "solenoide1en1"};
+  Serial.printf("[harmonica-midi] pret : air=%s valve=%s trous=%u mixte=%d mock=%d\n",
+                kAirNames[(uint8_t)c.air.impl], kValveNames[(uint8_t)c.valve.impl],
+                g_sys->valve->holeCount(), g_sys->engine.mixedCapable(), g_sys->mock);
 }
 
 void loop() { vTaskDelay(1000); }
@@ -167,9 +205,11 @@ int main() {
   g_sys->air->startHoming();
   step(g_sys, t, 120);                    // home + centrage (silencieux)
 
+  static const char* kAirNames[]   = {"verin double", "soufflet", "2 pompes", "1 pompe + aiguillage"};
+  static const char* kValveNames[] = {"servo 2-en-1", "servo 1-en-1", "solenoide 2-en-1", "solenoide 1-en-1"};
   std::printf("=== Build : air=%s, valve=%s, mixte(souffle+aspire)=%d ===\n",
-              g_store.config().air.impl == AirImpl::DualReservoirPiston ? "verin double" : "soufflet",
-              g_store.config().valve.impl == ValveImpl::Valve2in1 ? "2-en-1" : "1-en-1",
+              kAirNames[(uint8_t)g_store.config().air.impl],
+              kValveNames[(uint8_t)g_store.config().valve.impl],
               g_sys->engine.mixedCapable());
 
   MockLog::enabled = true;

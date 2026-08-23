@@ -16,9 +16,21 @@
 
 namespace harm {
 
-// Commande émise par le web, exécutée sur le Core 1.
+// Commande émise par le web, exécutée sur le Core 1 (seul propriétaire de l'I2C
+// et de l'état moteur). Le champ `channel` porte selon le cas un canal, un
+// numéro de trou, une note MIDI ou une direction ; `value` un angle, une µs,
+// une vélocité, un état ou un duty en pour-cent.
 struct WebCommand {
-  enum Type : uint8_t { ServoUs, ServoDeg, PistonHome, PistonCenter, PressureTare, SwapHarmonica } type;
+  enum Type : uint8_t {
+    ServoUs, ServoDeg, PistonHome, PistonCenter, PressureTare, SwapHarmonica,
+    SolenoidSet,     // channel = canal du bus vannes, value = 0/1
+    HoleState,       // channel = trou, value = 0 fermé / 1 souffle / 2 aspiration
+    PumpDuty,        // channel = 1 souffle / 2 aspiration, value = duty % (<0 = auto)
+    SlideSet,        // value = 0/1
+    TestNoteOn,      // channel = note MIDI, value = vélocité
+    TestNoteOff,     // channel = note MIDI
+    AllOff           // panique : coupe tout
+  } type;
   uint8_t       channel = 0;
   int           value = 0;
   HarmonicaCfg* harmonica = nullptr;   // SwapHarmonica : appliqué puis libéré par le Core 1
@@ -27,6 +39,7 @@ struct WebCommand {
 // Instantané de télémétrie publié par le Core 1, consommé par le web.
 struct StatusSnapshot {
   AirStatus air;
+  AirCaps   caps;                       // ce que le montage courant sait faire
   uint8_t   voices = 0;
   bool      mixedCapable = false;
   float     pitchBend = 0.0f, modulation = 0.0f, setpointKpa = 0.0f;
@@ -34,6 +47,10 @@ struct StatusSnapshot {
   bool      mock = false;
   char      harmonica[32] = {0};
   uint32_t  droppedMidi = 0;
+  uint32_t  holeBlowMask = 0, holeDrawMask = 0;   // trous qui sonnent (bit = trou)
+  uint8_t   holeCount = 0;
+  uint8_t   airImpl = 0, valveImpl = 0;           // enums AirImpl / ValveImpl
+  bool      slidePresent = false, slideEngaged = false;
 };
 
 class WebServer {

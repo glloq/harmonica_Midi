@@ -83,6 +83,13 @@ public:
     return s;
   }
 
+  AirCaps caps() const override {
+    AirCaps c;
+    c.simultaneous = false; c.hasPiston = true; c.needsHoming = false;
+    c.railsSwap = false; c.pressureSensors = 1;
+    return c;
+  }
+
 private:
   IStepper&        motor_;
   IPressureSensor& sensor_;

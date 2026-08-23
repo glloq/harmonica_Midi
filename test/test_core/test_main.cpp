@@ -8,7 +8,10 @@
 #include "web/DefaultConfig.h"
 #include "hal/Mocks.h"
 #include "air/DualReservoirPiston.h"
+#include "air/PumpPair.h"
+#include "air/SinglePumpReversible.h"
 #include "valve/Valve2in1.h"
+#include "valve/ValveSolenoid.h"
 #include "midi/MidiParser.h"
 #include "util/PIController.h"
 
@@ -134,6 +137,7 @@ struct FakeAir : IAirSource {
   bool isHomed() const override { return true; }
   void startCentering() override {}
   AirStatus status() const override { return {}; }
+  AirCaps   caps() const override { AirCaps c; c.simultaneous = true; return c; }
 };
 
 // Source d'air qui enregistre la dernière intensité demandée (pour vibrato).
@@ -152,6 +156,7 @@ struct RecordingAir : IAirSource {
   bool isHomed() const override { return true; }
   void startCentering() override {}
   AirStatus status() const override { return {}; }
+  AirCaps   caps() const override { AirCaps c; c.simultaneous = true; return c; }
 };
 }  // namespace
 
@@ -311,6 +316,364 @@ void test_bend_mapping() {
   TEST_ASSERT_FLOAT_WITHIN(0.01f, -1.0f, e.bendSemitones);
 }
 
+// ============================================================================
+//  Pompes continues (PumpPair) — régulation, veille, purge
+// ============================================================================
+void test_pumppair_regulates_and_idles() {
+  PumpPairCfg cfg;                       // minDuty 0.15 par défaut sur les 2 pompes
+  cfg.bleedChannel = 5;
+  MockPwmOut blow("blow"), draw("draw");
+  MockPressure pB, pD;
+  MockServoBus servos;
+  PumpPair air(blow, draw, pB, &pD, &servos, cfg);
+  air.begin();
+  TEST_ASSERT_TRUE(air.caps().simultaneous);
+  TEST_ASSERT_FALSE(air.caps().hasPiston);
+  TEST_ASSERT_TRUE(air.caps().hasPumps);
+  TEST_ASSERT_EQUAL_INT((int)Rail::A, (int)air.railForDirection(Direction::Blow));
+  TEST_ASSERT_EQUAL_INT((int)Rail::B, (int)air.railForDirection(Direction::Draw));
+  TEST_ASSERT_EQUAL_INT(cfg.bleedOpenAngle, servos.lastAngle[5]);   // repos : purge ouverte
+
+  air.request(Direction::Blow, 1.0f);    // pression mesurée nulle => le PI pousse
+  for (uint32_t t = 0; t < 10; ++t) air.update(t * 20);
+  TEST_ASSERT_TRUE(blow.value > cfg.blowPump.minDuty);
+  TEST_ASSERT_EQUAL_INT(cfg.bleedClosedAngle, servos.lastAngle[5]);   // purge refermée
+  TEST_ASSERT_EQUAL_FLOAT(0.0f, draw.value);                          // pompe aspiration au repos
+
+  pB.setKpa(cfg.pressureTargetKpa);      // consigne atteinte => "prêt"
+  for (uint32_t t = 10; t < 40; ++t) air.update(t * 20);
+  TEST_ASSERT_TRUE(air.status().ready);
+
+  air.release(Direction::Blow);
+  air.update(900);
+  TEST_ASSERT_EQUAL_FLOAT(0.0f, blow.value);                          // retour à la veille
+  TEST_ASSERT_EQUAL_INT(cfg.bleedOpenAngle, servos.lastAngle[5]);
+}
+
+void test_pumppair_manual_duty() {
+  PumpPairCfg cfg;
+  MockPwmOut blow("blow"), draw("draw");
+  MockPressure pB, pD;
+  MockServoBus servos;
+  PumpPair air(blow, draw, pB, &pD, &servos, cfg);
+  air.begin();
+  TEST_ASSERT_TRUE(air.setManualDuty(Direction::Blow, 0.5f));
+  air.update(20);
+  // 0.5 remis à l'échelle dans [minDuty, maxDuty] = 0.15 + 0.5 x 0.85
+  TEST_ASSERT_FLOAT_WITHIN(0.01f, 0.575f, blow.value);
+  air.setManualDuty(Direction::Blow, -1.0f);        // rendu à la régulation
+  air.update(40);
+  TEST_ASSERT_EQUAL_FLOAT(0.0f, blow.value);        // aucune demande => veille
+}
+
+// Capteur unique : la dépression est déduite par symétrie.
+void test_pumppair_shared_sensor() {
+  PumpPairCfg cfg; cfg.sharedSensor = true;
+  MockPwmOut blow("blow"), draw("draw");
+  MockPressure pB;
+  MockServoBus servos;
+  PumpPair air(blow, draw, pB, nullptr, &servos, cfg);
+  air.begin();
+  pB.setKpa(0.2f);
+  TEST_ASSERT_EQUAL_UINT8(1, air.caps().pressureSensors);
+  TEST_ASSERT_FLOAT_WITHIN(0.001f, 0.2f, air.currentPressure(Direction::Draw));
+}
+
+// ============================================================================
+//  Pompe unique + aiguillage
+// ============================================================================
+void test_single_pump_diverter() {
+  SinglePumpCfg cfg;                     // servo, souffle 30°, aspiration 150°, neutre 90°
+  MockPwmOut pump("pump");
+  MockPressure sensor;
+  MockServoBus servos;
+  SinglePumpReversible air(pump, sensor, &servos, nullptr, cfg);
+  air.begin();
+  TEST_ASSERT_FALSE(air.supportsSimultaneousDirections());
+  TEST_ASSERT_TRUE(air.caps().hasDiverter);
+  TEST_ASSERT_EQUAL_INT(cfg.neutralAngle, servos.lastAngle[cfg.diverterChannel]);
+
+  air.update(0);
+  air.request(Direction::Blow, 1.0f);
+  TEST_ASSERT_EQUAL_INT(cfg.blowAngle, servos.lastAngle[cfg.diverterChannel]);
+  TEST_ASSERT_TRUE(air.switching());                 // bascule en cours : pas encore prêt
+  air.update(cfg.switchMs + 10);
+  TEST_ASSERT_FALSE(air.switching());
+  TEST_ASSERT_TRUE(pump.value > 0.0f);               // la pompe monte en régime
+
+  air.request(Direction::Draw, 1.0f);                // l'aiguillage bascule
+  TEST_ASSERT_EQUAL_INT(cfg.drawAngle, servos.lastAngle[cfg.diverterChannel]);
+  air.release(Direction::Draw);
+  TEST_ASSERT_EQUAL_INT(cfg.neutralAngle, servos.lastAngle[cfg.diverterChannel]);
+}
+
+// Variante électro-vanne : l'aiguillage passe par le bus de sorties.
+void test_single_pump_solenoid_diverter() {
+  SinglePumpCfg cfg;
+  cfg.diverter = DiverterImpl::Solenoid;
+  cfg.diverterChannel = 3;
+  MockPwmOut pump("pump");
+  MockPressure sensor;
+  MockDigitalBus bus;
+  SinglePumpReversible air(pump, sensor, nullptr, &bus, cfg);
+  air.begin();
+  air.request(Direction::Blow, 1.0f);
+  TEST_ASSERT_TRUE(bus.on[3]);
+  air.request(Direction::Draw, 1.0f);
+  TEST_ASSERT_FALSE(bus.on[3]);
+}
+
+// ============================================================================
+//  Valves à électro-vannes
+// ============================================================================
+void test_solenoid2in1_follows_rail() {
+  Config c = defaultCfg();
+  c.valve.impl = ValveImpl::Solenoid2in1;
+  c.valve.holeCount = 2;
+  c.valve.holesS2[0] = {0, 0, 1};
+  c.valve.holesS2[1] = {1, 2, 3};
+  MockDigitalBus bus;
+  FakeAir air;
+  ValveSolenoid2in1 valve(bus, c.valve);
+  valve.bindAirSource(&air);
+  valve.begin();
+  TEST_ASSERT_TRUE(valve.supportsPerHoleDirection());
+
+  valve.setHoleState(0, Direction::Blow);          // souffle = rail A -> canal 0
+  TEST_ASSERT_TRUE(bus.on[0]);
+  TEST_ASSERT_FALSE(bus.on[1]);
+  valve.setHoleState(0, Direction::Draw);          // aspiration = rail B -> canal 1
+  TEST_ASSERT_FALSE(bus.on[0]);
+  TEST_ASSERT_TRUE(bus.on[1]);
+
+  air.blow = Rail::B;                              // inversion du piston
+  valve.setHoleState(0, Direction::Blow);          // le souffle bascule sur le canal 1
+  TEST_ASSERT_FALSE(bus.on[0]);
+  TEST_ASSERT_TRUE(bus.on[1]);
+
+  valve.setHoleState(0, Direction::Closed);
+  TEST_ASSERT_FALSE(bus.on[0]);
+  TEST_ASSERT_FALSE(bus.on[1]);
+}
+
+// « Peak & hold » : pic plein courant puis maintien réduit.
+void test_solenoid_peak_and_hold() {
+  Config c = defaultCfg();
+  c.valve.impl = ValveImpl::Solenoid1in1;
+  c.valve.holeCount = 1;
+  c.valve.holesS1[0] = {0, 4};
+  c.valve.solenoids.holdDuty = 0.4f;
+  c.valve.solenoids.peakMs = 50;
+  MockDigitalBus bus;
+  ValveSolenoid1in1 valve(bus, c.valve);
+  valve.begin();
+  TEST_ASSERT_FALSE(valve.supportsPerHoleDirection());
+
+  valve.update(1000);
+  valve.setHoleState(0, Direction::Blow);
+  TEST_ASSERT_EQUAL_FLOAT(1.0f, bus.duty[4]);      // pic
+  valve.update(1030);
+  TEST_ASSERT_EQUAL_FLOAT(1.0f, bus.duty[4]);      // toujours dans le pic
+  valve.update(1060);
+  TEST_ASSERT_EQUAL_FLOAT(0.4f, bus.duty[4]);      // maintien réduit
+  valve.setHoleState(0, Direction::Closed);
+  TEST_ASSERT_EQUAL_FLOAT(0.0f, bus.duty[4]);
+}
+
+// ============================================================================
+//  Moteur de jeu : bends actionnés, délai valve->air, note bloquée, CC7
+// ============================================================================
+namespace {
+// Moteur de jeu monté sur une source d'air enregistreuse (aucun matériel).
+struct EngineRig {
+  Config c;
+  MockServoBus bus;
+  RecordingAir air;
+  Valve2in1 valve;
+  HarmonicaMap map;
+  NoteEngine engine;
+  explicit EngineRig(Config cfg) : c(cfg), valve(bus, c.valve) {
+    map.load(c.harmonica);
+    engine.begin(&air, &valve, &map, nullptr, c.engine);
+  }
+};
+}  // namespace
+
+void test_bend_actuation() {
+  Config c = defaultCfg();
+  c.engine.bendEnabled = true;
+  c.engine.bendPressureGain = 0.5f;
+  c.engine.velocityToIntensity = false;      // base = 1.0 : on isole l'effet du bend
+  c.harmonica.noteCount = 2;
+  c.harmonica.notes[0] = {60, 0, Direction::Draw, false, 0.5f, 0.0f};
+  c.harmonica.notes[1] = {61, 1, Direction::Draw, false, 0.5f, -1.0f};   // bend d'un demi-ton
+  EngineRig r(c);
+  r.engine.handleMidi({MidiEvent::NoteOn, 0, 60, 100});
+  const float natural = r.air.lastDraw;
+  r.engine.handleMidi({MidiEvent::NoteOff, 0, 60, 0});
+  r.engine.handleMidi({MidiEvent::NoteOn, 0, 61, 100});
+  const float bent = r.air.lastDraw;
+  TEST_ASSERT_FLOAT_WITHIN(0.01f, 0.5f, natural);
+  TEST_ASSERT_FLOAT_WITHIN(0.01f, 0.75f, bent);       // 0.5 x (1 + 0.5 x 1 demi-ton)
+  TEST_ASSERT_TRUE(bent > natural);
+}
+
+// Bend désactivé : la note bendée demande la même pression que la naturelle.
+void test_bend_actuation_disabled() {
+  Config c = defaultCfg();
+  c.engine.bendEnabled = false;
+  c.engine.velocityToIntensity = false;
+  c.harmonica.noteCount = 1;
+  c.harmonica.notes[0] = {61, 1, Direction::Draw, false, 0.5f, -1.0f};
+  EngineRig r(c);
+  r.engine.handleMidi({MidiEvent::NoteOn, 0, 61, 100});
+  TEST_ASSERT_FLOAT_WITHIN(0.01f, 0.5f, r.air.lastDraw);
+}
+
+void test_hole_settle_delays_air() {
+  Config c = defaultCfg();
+  c.engine.holeSettleMs = 20;              // la valve part avant l'air
+  EngineRig r(c);
+  r.engine.update(1000);
+  r.engine.handleMidi({MidiEvent::NoteOn, 0, 60, 100});
+  TEST_ASSERT_EQUAL_FLOAT(0.0f, r.air.lastBlow);        // air pas encore accordé
+  TEST_ASSERT_EQUAL_INT(30, r.bus.lastAngle[0]);        // ... mais la valve a bougé (rail A = 30°)
+  r.engine.update(1010);
+  TEST_ASSERT_EQUAL_FLOAT(0.0f, r.air.lastBlow);
+  r.engine.update(1025);
+  TEST_ASSERT_TRUE(r.air.lastBlow > 0.0f);              // course finie : l'air suit
+}
+
+void test_note_max_hold_cuts_stuck_note() {
+  Config c = defaultCfg();
+  c.engine.noteMaxHoldMs = 100;
+  EngineRig r(c);
+  r.engine.update(0);
+  r.engine.handleMidi({MidiEvent::NoteOn, 0, 60, 100});   // NoteOff jamais reçu
+  TEST_ASSERT_EQUAL_INT(1, r.engine.activeVoiceCount());
+  r.engine.update(50);
+  TEST_ASSERT_EQUAL_INT(1, r.engine.activeVoiceCount());
+  r.engine.update(200);
+  TEST_ASSERT_EQUAL_INT(0, r.engine.activeVoiceCount());
+  TEST_ASSERT_EQUAL_FLOAT(0.0f, r.air.lastBlow);
+}
+
+void test_cc7_volume() {
+  Config c = defaultCfg();
+  c.engine.velocityToIntensity = false;
+  EngineRig r(c);
+  r.engine.handleMidi({MidiEvent::NoteOn, 0, 60, 100});
+  TEST_ASSERT_FLOAT_WITHIN(0.01f, 1.0f, r.air.lastBlow);
+  r.engine.handleMidi({MidiEvent::ControlChange, 0, CC_VOLUME, 64});
+  TEST_ASSERT_FLOAT_WITHIN(0.02f, 0.5f, r.air.lastBlow);
+  r.engine.handleMidi({MidiEvent::ControlChange, 0, CC_VOLUME, 127});
+  TEST_ASSERT_FLOAT_WITHIN(0.01f, 1.0f, r.air.lastBlow);
+}
+
+// Le masque de trous alimente l'affichage temps réel de l'UI.
+void test_hole_mask() {
+  Config c = defaultCfg();
+  EngineRig r(c);
+  r.engine.handleMidi({MidiEvent::NoteOn, 0, 60, 100});   // trou 0, souffle
+  r.engine.handleMidi({MidiEvent::NoteOn, 0, 71, 100});   // trou 2, aspiration
+  TEST_ASSERT_EQUAL_UINT32(1u, r.engine.holeMask(Direction::Blow));
+  TEST_ASSERT_EQUAL_UINT32(4u, r.engine.holeMask(Direction::Draw));
+  r.engine.panic();
+  TEST_ASSERT_EQUAL_UINT32(0u, r.engine.holeMask(Direction::Blow));
+}
+
+// ============================================================================
+//  Configuration : nouvelles sections et cohérence du nombre de trous
+// ============================================================================
+void test_parse_new_air_sections() {
+  Config c = defaultCfg();
+  TEST_ASSERT_EQUAL_INT(2, c.version);
+  TEST_ASSERT_EQUAL_INT((int)PumpDrive::Ledc, (int)c.air.pumps.blowPump.drive);
+  TEST_ASSERT_EQUAL_INT(18, c.air.pumps.blowPump.pin);
+  TEST_ASSERT_EQUAL_INT(19, c.air.pumps.drawPump.pin);
+  TEST_ASSERT_EQUAL_UINT8(0x77, c.air.pumps.drawSensor.addr);
+  TEST_ASSERT_EQUAL_UINT8(255, c.air.pumps.bleedChannel);
+  TEST_ASSERT_EQUAL_INT((int)DiverterImpl::Servo, (int)c.air.singlePump.diverter);
+  TEST_ASSERT_EQUAL_INT(150, c.air.singlePump.switchMs);
+  TEST_ASSERT_FLOAT_WITHIN(0.001f, 0.4f, c.valve.solenoids.holdDuty);
+  TEST_ASSERT_FLOAT_WITHIN(0.001f, 0.15f, c.engine.bendPressureGain);
+  TEST_ASSERT_TRUE(c.system.autoHomeOnBoot);
+}
+
+// Le nombre de trous doit suivre la LISTE de l'implémentation sélectionnée.
+void test_holecount_follows_valve_impl() {
+  const char* json = R"({
+    "valve": { "impl": "solenoid2in1",
+      "valve2in1": { "holes": [ {"hole":0,"channel":0}, {"hole":1,"channel":1}, {"hole":2,"channel":2} ] },
+      "solenoid2in1": { "holes": [ {"hole":0,"railAchannel":4,"railBchannel":5} ] } } })";
+  Config c;
+  TEST_ASSERT_TRUE(ConfigStore::deserialize(json, c));
+  TEST_ASSERT_EQUAL_INT((int)ValveImpl::Solenoid2in1, (int)c.valve.impl);
+  TEST_ASSERT_EQUAL_UINT8(1, c.valve.holeCount);
+  TEST_ASSERT_EQUAL_UINT8(4, c.valve.holesS2[0].railAchannel);
+  TEST_ASSERT_EQUAL_UINT8(5, c.valve.holesS2[0].railBchannel);
+}
+
+void test_parse_gpio_solenoid_bus() {
+  const char* json = R"({ "valve": { "impl": "solenoid1in1",
+    "solenoids": { "impl": "gpio", "activeLow": true, "gpioPins": [13, 14, 27] },
+    "solenoid1in1": { "holes": [ {"hole":0,"channel":0} ] } } })";
+  Config c;
+  TEST_ASSERT_TRUE(ConfigStore::deserialize(json, c));
+  TEST_ASSERT_EQUAL_INT((int)DigitalBusImpl::Gpio, (int)c.valve.solenoids.impl);
+  TEST_ASSERT_TRUE(c.valve.solenoids.activeLow);
+  TEST_ASSERT_EQUAL_UINT8(3, c.valve.solenoids.gpioCount);
+  TEST_ASSERT_EQUAL_INT(27, c.valve.solenoids.gpioPins[2]);
+}
+
+// ============================================================================
+//  Factory : les 16 combinaisons air x valve se montent et jouent
+// ============================================================================
+void test_factory_matrix() {
+  const AirImpl airs[] = {AirImpl::DualReservoirPiston, AirImpl::SingleBellows,
+                          AirImpl::PumpPair, AirImpl::SinglePumpReversible};
+  const ValveImpl valves[] = {ValveImpl::Valve2in1, ValveImpl::Valve1in1,
+                              ValveImpl::Solenoid2in1, ValveImpl::Solenoid1in1};
+  for (AirImpl a : airs) {
+    for (ValveImpl v : valves) {
+      Config c = defaultCfg();
+      c.air.impl = a;
+      c.valve.impl = v;
+      c.valve.holeCount = 2;                       // les listes de secours en ont 2
+      c.slide.enabled = true;
+      c.slide.impl = (v == ValveImpl::Solenoid1in1) ? SlideImpl::Solenoid : SlideImpl::Servo;
+      System* s = buildSystem(c);
+      TEST_ASSERT_NOT_NULL(s->air);
+      TEST_ASSERT_NOT_NULL(s->valve);
+      TEST_ASSERT_NOT_NULL(s->slide);
+      // Souffle+aspiration simultanés = capacité de la source ET de la valve.
+      const bool expected = s->air->caps().simultaneous && s->valve->supportsPerHoleDirection();
+      TEST_ASSERT_EQUAL_INT(expected, s->engine.mixedCapable());
+      s->air->startHoming();
+      for (uint32_t t = 0; t < 200; ++t) { s->air->update(t); s->valve->update(t); s->engine.update(t); }
+      s->engine.handleMidi({MidiEvent::NoteOn, 0, 60, 100});
+      for (uint32_t t = 200; t < 240; ++t) { s->air->update(t); s->valve->update(t); s->engine.update(t); }
+      TEST_ASSERT_EQUAL_INT(1, s->engine.activeVoiceCount());
+      s->engine.handleMidi({MidiEvent::NoteOff, 0, 60, 0});
+      TEST_ASSERT_EQUAL_INT(0, s->engine.activeVoiceCount());
+    }
+  }
+}
+
+// Un slide à électroaimant s'engage sur le bus de sorties, pas sur les servos.
+void test_solenoid_slide() {
+  MockDigitalBus bus;
+  SlideCfg cfg; cfg.enabled = true; cfg.impl = SlideImpl::Solenoid; cfg.channel = 7;
+  SolenoidSlide slide(bus, cfg);
+  slide.begin();
+  TEST_ASSERT_FALSE(bus.on[7]);
+  slide.setEngaged(true);
+  TEST_ASSERT_TRUE(bus.on[7]);
+  TEST_ASSERT_TRUE(slide.engaged());
+  slide.setEngaged(false);
+  TEST_ASSERT_FALSE(bus.on[7]);
+}
+
 int main() {
   UNITY_BEGIN();
   RUN_TEST(test_map_lookup);
@@ -331,5 +694,23 @@ int main() {
   RUN_TEST(test_hole_out_of_range_ignored);
   RUN_TEST(test_pitchbend);
   RUN_TEST(test_bend_mapping);
+  RUN_TEST(test_pumppair_regulates_and_idles);
+  RUN_TEST(test_pumppair_manual_duty);
+  RUN_TEST(test_pumppair_shared_sensor);
+  RUN_TEST(test_single_pump_diverter);
+  RUN_TEST(test_single_pump_solenoid_diverter);
+  RUN_TEST(test_solenoid2in1_follows_rail);
+  RUN_TEST(test_solenoid_peak_and_hold);
+  RUN_TEST(test_bend_actuation);
+  RUN_TEST(test_bend_actuation_disabled);
+  RUN_TEST(test_hole_settle_delays_air);
+  RUN_TEST(test_note_max_hold_cuts_stuck_note);
+  RUN_TEST(test_cc7_volume);
+  RUN_TEST(test_hole_mask);
+  RUN_TEST(test_parse_new_air_sections);
+  RUN_TEST(test_holecount_follows_valve_impl);
+  RUN_TEST(test_parse_gpio_solenoid_bus);
+  RUN_TEST(test_factory_matrix);
+  RUN_TEST(test_solenoid_slide);
   return UNITY_END();
 }

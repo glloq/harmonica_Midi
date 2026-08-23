@@ -1,5 +1,5 @@
 {
-  "name": "Diatonic C Richter",
+  "name": "Diatonic C Richter + bends",
   "holeCount": 10,
   "hasSlide": false,
   "notes": [
@@ -22,6 +22,19 @@
     {"note": 91, "hole": 8, "dir": "blow"},
     {"note": 89, "hole": 8, "dir": "draw"},
     {"note": 96, "hole": 9, "dir": "blow"},
-    {"note": 93, "hole": 9, "dir": "draw"}
+    {"note": 93, "hole": 9, "dir": "draw"},
+    {"note": 61, "hole": 0, "dir": "draw", "bend": -1},
+    {"note": 66, "hole": 1, "dir": "draw", "bend": -1},
+    {"note": 65, "hole": 1, "dir": "draw", "bend": -2},
+    {"note": 70, "hole": 2, "dir": "draw", "bend": -1},
+    {"note": 69, "hole": 2, "dir": "draw", "bend": -2},
+    {"note": 68, "hole": 2, "dir": "draw", "bend": -3},
+    {"note": 73, "hole": 3, "dir": "draw", "bend": -1},
+    {"note": 76, "hole": 4, "dir": "draw", "bend": -1},
+    {"note": 80, "hole": 5, "dir": "draw", "bend": -1},
+    {"note": 87, "hole": 7, "dir": "blow", "bend": -1},
+    {"note": 90, "hole": 8, "dir": "blow", "bend": -1},
+    {"note": 95, "hole": 9, "dir": "blow", "bend": -1},
+    {"note": 94, "hole": 9, "dir": "blow", "bend": -2}
   ]
 }

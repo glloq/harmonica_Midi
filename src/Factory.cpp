@@ -1,13 +1,20 @@
 // ============================================================================
 //  Factory.cpp — assemblage config -> objets (HAL réelle ou mock).
+//
+//  Seul endroit du projet qui connaît les classes concrètes. Ajouter un
+//  système d'air, un type de valve ou un actionneur = ajouter un cas ici,
+//  une entrée d'enum dans Config.h et son parsing dans ConfigStore.
 // ============================================================================
 #include "Factory.h"
 #include "hal/Mocks.h"
 #include "hal/ArduinoHal.h"
 #include "air/DualReservoirPiston.h"
 #include "air/SingleBellows.h"
+#include "air/PumpPair.h"
+#include "air/SinglePumpReversible.h"
 #include "valve/Valve2in1.h"
 #include "valve/Valve1in1.h"
+#include "valve/ValveSolenoid.h"
 
 #if HARM_ARDUINO
 #include <Arduino.h>
@@ -53,6 +60,9 @@ static IPressureSensor* makePressure(bool mock, PressureType type, uint8_t addr,
   (void)mock;
   return new MockPressure();
 }
+static IPressureSensor* makePressure(bool mock, const PressureSensorCfg& s) {
+  return makePressure(mock, s.type, s.addr, s.adcPin);
+}
 
 static IEndstops* makeEndstops(const Config& c, bool mock) {
 #if HARM_ARDUINO
@@ -62,6 +72,44 @@ static IEndstops* makeEndstops(const Config& c, bool mock) {
 #endif
   (void)mock;
   return new MockEndstops();
+}
+
+// Bus d'électro-vannes : construit UNE fois, partagé par les valves, le slide
+// et l'aiguillage de la pompe unique.
+static IDigitalOutBus* makeDigitalBus(const DigitalBusCfg& d, bool mock) {
+#if HARM_ARDUINO
+  if (!mock) {
+    if (d.impl == DigitalBusImpl::Gpio) return new GpioDigitalBus(d.gpioPins, d.gpioCount, d.activeLow);
+    return new Pca9685DigitalBus(d.pcaAddr, d.pcaFreqHz, d.activeLow);
+  }
+#else
+  (void)d;
+#endif
+  (void)mock;
+  return new MockDigitalBus();
+}
+
+// Sortie de puissance d'une pompe : PWM matériel (MOSFET) ou impulsions servo (ESC).
+static IPwmOut* makePump(const PumpCfg& p, IServoBus* servos, bool mock, const char* tag,
+                         uint8_t ledcChannel) {
+#if HARM_ARDUINO
+  if (!mock) {
+    if (p.drive == PumpDrive::Ledc) return new LedcPwmOut(p.pin, p.freqHz, ledcChannel);
+    return new ServoBusPwmOut(*servos, p.channel, p.escMinUs, p.escMaxUs);   // esc / pca9685
+  }
+#else
+  (void)p; (void)servos; (void)ledcChannel;
+#endif
+  (void)mock; (void)ledcChannel;
+  return new MockPwmOut(tag);
+}
+
+// Le bus d'électro-vannes n'existe que s'il sert à quelque chose.
+static bool needsSolenoidBus(const Config& c) {
+  if (c.valve.impl == ValveImpl::Solenoid1in1 || c.valve.impl == ValveImpl::Solenoid2in1) return true;
+  if (c.slide.enabled && c.slide.impl == SlideImpl::Solenoid) return true;
+  if (c.air.impl == AirImpl::SinglePumpReversible && c.air.singlePump.diverter == DiverterImpl::Solenoid) return true;
+  return false;
 }
 
 // ---- Assemblage complet -----------------------------------------------------
@@ -76,29 +124,58 @@ System* buildSystem(const Config& cfg) {
 
   s->servos = makeServoBus(cfg, mock);
   s->servos->begin();
+  if (needsSolenoidBus(cfg)) s->solenoids = makeDigitalBus(cfg.valve.solenoids, mock);
 
   // -- Source d'air --
-  if (cfg.air.impl == AirImpl::DualReservoirPiston) {
-    const auto& d = cfg.air.dual;
-    s->stepper  = makeStepper(cfg, mock);
-    s->pA       = makePressure(mock, d.pressureType, d.r1Addr, d.r1AdcPin);
-    s->pB       = makePressure(mock, d.pressureType, d.r2Addr, d.r2AdcPin);
-    s->endstops = makeEndstops(cfg, mock);
-    if (mock) s->endstops->bindPiston(s->stepper, d.travelMm);
-    s->air = new DualReservoirPiston(*s->stepper, *s->pA, *s->pB, *s->endstops, *s->servos, d);
-  } else {
-    const auto& b = cfg.air.bellows;
-    s->stepper = makeStepper(cfg, mock);
-    s->pA      = makePressure(mock, b.pressureType, b.addr, b.adcPin);
-    s->air = new SingleBellows(*s->stepper, *s->pA, b);
+  switch (cfg.air.impl) {
+    case AirImpl::DualReservoirPiston: {
+      const auto& d = cfg.air.dual;
+      s->stepper  = makeStepper(cfg, mock);
+      s->pA       = makePressure(mock, d.pressureType, d.r1Addr, d.r1AdcPin);
+      s->pB       = makePressure(mock, d.pressureType, d.r2Addr, d.r2AdcPin);
+      s->endstops = makeEndstops(cfg, mock);
+      if (mock) s->endstops->bindPiston(s->stepper, d.travelMm);
+      s->air = new DualReservoirPiston(*s->stepper, *s->pA, *s->pB, *s->endstops, *s->servos, d);
+      break;
+    }
+    case AirImpl::SingleBellows: {
+      const auto& b = cfg.air.bellows;
+      s->stepper = makeStepper(cfg, mock);
+      s->pA      = makePressure(mock, b.pressureType, b.addr, b.adcPin);
+      s->air = new SingleBellows(*s->stepper, *s->pA, b);
+      break;
+    }
+    case AirImpl::PumpPair: {
+      const auto& p = cfg.air.pumps;
+      s->pumpBlow = makePump(p.blowPump, s->servos, mock, "pumpBlow", 4);
+      s->pumpDraw = makePump(p.drawPump, s->servos, mock, "pumpDraw", 5);
+      s->pA = makePressure(mock, p.blowSensor);
+      if (!p.sharedSensor) s->pB = makePressure(mock, p.drawSensor);
+      s->air = new PumpPair(*s->pumpBlow, *s->pumpDraw, *s->pA, s->pB, s->servos, p);
+      break;
+    }
+    case AirImpl::SinglePumpReversible: {
+      const auto& p = cfg.air.singlePump;
+      s->pumpBlow = makePump(p.pump, s->servos, mock, "pump", 4);
+      s->pA = makePressure(mock, p.sensor);
+      s->air = new SinglePumpReversible(*s->pumpBlow, *s->pA, s->servos, s->solenoids, p);
+      break;
+    }
   }
 
   // -- Distribution --
-  if (cfg.valve.impl == ValveImpl::Valve2in1) s->valve = new Valve2in1(*s->servos, cfg.valve);
-  else                                        s->valve = new Valve1in1(*s->servos, cfg.valve);
+  switch (cfg.valve.impl) {
+    case ValveImpl::Valve2in1:    s->valve = new Valve2in1(*s->servos, cfg.valve); break;
+    case ValveImpl::Valve1in1:    s->valve = new Valve1in1(*s->servos, cfg.valve); break;
+    case ValveImpl::Solenoid2in1: s->valve = new ValveSolenoid2in1(*s->solenoids, cfg.valve); break;
+    case ValveImpl::Solenoid1in1: s->valve = new ValveSolenoid1in1(*s->solenoids, cfg.valve); break;
+  }
 
   // -- Slide (chromatique) --
-  if (cfg.slide.enabled) s->slide = new ServoSlide(*s->servos, cfg.slide);
+  if (cfg.slide.enabled) {
+    if (cfg.slide.impl == SlideImpl::Solenoid && s->solenoids) s->slide = new SolenoidSlide(*s->solenoids, cfg.slide);
+    else                                                       s->slide = new ServoSlide(*s->servos, cfg.slide);
+  }
 
   // -- Mise en route + moteur de jeu --
   s->air->begin();

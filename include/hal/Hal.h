@@ -43,6 +43,31 @@ public:
   virtual void  tare() = 0;
 };
 
+// Bus de sorties tout-ou-rien (électro-vannes / électroaimants).
+//  - write()      : ouvert / fermé ;
+//  - writeLevel() : niveau 0..1 pour le maintien "peak & hold" (économie de
+//                   courant et de chaleur) quand le bus sait moduler (PCA9685) ;
+//                   repli tout-ou-rien par défaut (GPIO nu).
+class IDigitalOutBus {
+public:
+  virtual ~IDigitalOutBus() = default;
+  virtual bool    begin() = 0;
+  virtual void    write(uint8_t channel, bool on) = 0;
+  virtual void    writeLevel(uint8_t channel, float duty01) { write(channel, duty01 > 0.5f); }
+  virtual void    allOff() = 0;
+  virtual uint8_t channelCount() const = 0;
+  virtual bool    supportsLevel() const { return false; }
+};
+
+// Sortie PWM continue (pompe/turbine sur MOSFET, ou ESC piloté en impulsions).
+class IPwmOut {
+public:
+  virtual ~IPwmOut() = default;
+  virtual bool  begin() = 0;
+  virtual void  setDuty(float duty01) = 0;   // 0 = arrêt, 1 = plein régime
+  virtual float duty() const = 0;
+};
+
 // Fins de course mécaniques du vérin double.
 class IEndstops {
 public:
